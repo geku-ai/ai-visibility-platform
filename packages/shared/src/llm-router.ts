@@ -135,14 +135,14 @@ export class LLMRouterService {
         console.log(`[LLM Router] Using Anthropic key: ${anthropicKey.substring(0, 10)}... (length: ${anthropicKey.length})`);
         return {
           provider: 'anthropic',
-          model: process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229', // Using sonnet (more available than opus)
+          model: process.env.ANTHROPIC_MODEL || 'claude-3-haiku-20240307', // Using haiku (most available, used in isAvailable test)
           apiKey: anthropicKey,
         };
       
       case 'gemini':
         return {
           provider: 'gemini',
-          model: process.env.GEMINI_MODEL || 'gemini-1.5-flash', // Using 1.5-flash (works with SDK, gemini-pro deprecated)
+          model: process.env.GEMINI_MODEL || 'gemini-1.5-pro', // Trying 1.5-pro (1.5-flash returned 404)
           apiKey: process.env.GOOGLE_AI_API_KEY!,
         };
       
