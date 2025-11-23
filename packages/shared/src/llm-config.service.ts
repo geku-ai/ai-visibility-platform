@@ -35,7 +35,7 @@ export class LLMConfigService {
       case 'gemini':
         return {
           provider: 'gemini',
-          model: defaultModel || 'gemini-pro', // REVERTED: Original working model from Nov 21
+          model: defaultModel || 'gemini-1.5-flash', // Using 1.5-flash (works with SDK, gemini-pro deprecated)
           apiKey: this.configService.get<string>('GOOGLE_AI_API_KEY')!,
         };
       

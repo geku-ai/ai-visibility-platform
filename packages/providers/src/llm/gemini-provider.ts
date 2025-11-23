@@ -12,8 +12,8 @@ export class GeminiProvider extends BaseLLMProvider {
       throw new Error('Google AI API key is required');
     }
     this.client = new GoogleGenerativeAI(config.apiKey);
-    // REVERTED: Original working model from Nov 21
-    const modelName = process.env.GEMINI_MODEL || 'gemini-pro';
+    // Using gemini-1.5-flash which works with the SDK (gemini-pro deprecated for v1 API)
+    const modelName = process.env.GEMINI_MODEL || 'gemini-1.5-flash';
     this.model = this.client.getGenerativeModel({ model: modelName });
   }
 
