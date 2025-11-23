@@ -15,7 +15,7 @@ export class AnthropicProvider extends BaseLLMProvider {
   async query(prompt: string, options: any = {}): Promise<LLMResponse> {
     try {
       const response = await this.client.messages.create({
-        model: options.model || process.env.ANTHROPIC_MODEL || 'claude-3-opus-20240229', // Using opus as fallback
+        model: options.model || process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229', // Using sonnet (more reliable)
         max_tokens: options.maxTokens || 1000,
         temperature: options.temperature || 0.7,
         messages: [
