@@ -14,8 +14,10 @@ export class AnthropicProvider extends BaseLLMProvider {
 
   async query(prompt: string, options: any = {}): Promise<LLMResponse> {
     try {
+      const modelName = options.model || process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229';
+      console.log(`[AnthropicProvider] Making request with model: ${modelName}, key: ${this.config.apiKey?.substring(0, 10)}...`);
       const response = await this.client.messages.create({
-        model: options.model || process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229', // Using sonnet (more available than opus)
+        model: modelName, // Using sonnet (more available than opus)
         max_tokens: options.maxTokens || 1000,
         temperature: options.temperature || 0.7,
         messages: [

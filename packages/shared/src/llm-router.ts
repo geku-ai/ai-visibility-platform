@@ -127,10 +127,16 @@ export class LLMRouterService {
         };
       
       case 'anthropic':
+        const anthropicKey = process.env.ANTHROPIC_API_KEY;
+        if (!anthropicKey) {
+          throw new Error('ANTHROPIC_API_KEY environment variable is not set');
+        }
+        // Log first 10 chars of key for debugging (safe - doesn't expose full key)
+        console.log(`[LLM Router] Using Anthropic key: ${anthropicKey.substring(0, 10)}... (length: ${anthropicKey.length})`);
         return {
           provider: 'anthropic',
           model: process.env.ANTHROPIC_MODEL || 'claude-3-sonnet-20240229', // Using sonnet (more available than opus)
-          apiKey: process.env.ANTHROPIC_API_KEY!,
+          apiKey: anthropicKey,
         };
       
       case 'gemini':
