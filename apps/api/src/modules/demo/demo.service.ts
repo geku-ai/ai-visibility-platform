@@ -365,7 +365,8 @@ export class DemoService {
 
     const progress = this.computeProgress(demoRun.progress, total, finished);
 
-    // Get engine visibility - which engines have successful runs with mentions
+    // Get engine visibility - which engines have successful runs with answers
+    // Changed: No longer requires mentions - just needs successful runs with answers
     let engines: Array<{ key: string; visible: boolean }> = [];
     if (demoRun.workspaceId && completed > 0) {
       try {
@@ -375,7 +376,6 @@ export class DemoService {
            JOIN "prompts" p ON p.id = pr."promptId"
            JOIN "engines" e ON e.id = pr."engineId"
            JOIN "answers" a ON a."promptRunId" = pr.id
-           JOIN "mentions" m ON m."answerId" = a.id
            WHERE pr."workspaceId" = $1
              AND pr."status" = 'SUCCESS'
              AND 'demo' = ANY(p."tags")
@@ -383,10 +383,10 @@ export class DemoService {
           [demoRun.workspaceId],
         );
 
-        const enginesWithMentions = new Set(engineRows.map((r) => r.engineKey));
+        const enginesWithAnswers = new Set(engineRows.map((r) => r.engineKey));
         engines = this.defaultEngines.map((engineKey) => ({
           key: engineKey,
-          visible: enginesWithMentions.has(engineKey),
+          visible: enginesWithAnswers.has(engineKey),
         }));
       } catch (error) {
         this.logger.warn(`Failed to get engine visibility for demoRun ${demoRunId}: ${error instanceof Error ? error.message : String(error)}`);

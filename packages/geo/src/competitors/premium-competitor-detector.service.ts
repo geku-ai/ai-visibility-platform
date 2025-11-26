@@ -141,6 +141,8 @@ Return JSON array:
   }
 ]
 
+IMPORTANT: Return ONLY a valid JSON array. Do not include any explanatory text, markdown formatting, or code blocks. Start your response directly with [ and end with ].
+
 Focus on REAL competitors that would appear in AI search results for industry queries.`;
 
       const response = await this.llmRouter.routeLLMRequest(workspaceId, prompt, {
@@ -149,8 +151,8 @@ Focus on REAL competitors that would appear in AI search results for industry qu
       });
 
       const text = (response.content || response.text || '').trim();
-      const cleaned = text.replace(/^```json\s*/, '').replace(/^```\s*/, '').replace(/\s*```$/, '');
-      const parsed = JSON.parse(cleaned) as Array<{
+      const jsonText = this.extractJSON(text);
+      const parsed = JSON.parse(jsonText) as Array<{
         domain: string;
         brandName: string;
         type: string;
@@ -546,6 +548,91 @@ Focus on REAL competitors that would appear in AI search results for industry qu
     }
 
     return { insights, threats, recommendations };
+  }
+
+  /**
+   * Extract JSON from LLM response, handling cases where response contains
+   * explanatory text before/after the JSON or markdown code blocks
+   */
+  private extractJSON(text: string): string {
+    // First, try to remove markdown code blocks
+    let cleaned = text.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/g, '').trim();
+    
+    // Try to parse directly first
+    try {
+      JSON.parse(cleaned);
+      return cleaned;
+    } catch {
+      // If that fails, try to find JSON array or object in the text
+      // Look for first [ or { and last matching ] or }
+      const arrayStart = cleaned.indexOf('[');
+      const objectStart = cleaned.indexOf('{');
+      
+      let startIndex = -1;
+      let isArray = false;
+      
+      if (arrayStart !== -1 && (objectStart === -1 || arrayStart < objectStart)) {
+        startIndex = arrayStart;
+        isArray = true;
+      } else if (objectStart !== -1) {
+        startIndex = objectStart;
+        isArray = false;
+      }
+      
+      if (startIndex !== -1) {
+        // Find the matching closing bracket/brace
+        let depth = 0;
+        let inString = false;
+        let escapeNext = false;
+        let endIndex = -1;
+        
+        for (let i = startIndex; i < cleaned.length; i++) {
+          const char = cleaned[i];
+          
+          if (escapeNext) {
+            escapeNext = false;
+            continue;
+          }
+          
+          if (char === '\\') {
+            escapeNext = true;
+            continue;
+          }
+          
+          if (char === '"' && !escapeNext) {
+            inString = !inString;
+            continue;
+          }
+          
+          if (inString) {
+            continue;
+          }
+          
+          if (char === (isArray ? '[' : '{')) {
+            depth++;
+          } else if (char === (isArray ? ']' : '}')) {
+            depth--;
+            if (depth === 0) {
+              endIndex = i;
+              break;
+            }
+          }
+        }
+        
+        if (endIndex !== -1) {
+          const jsonText = cleaned.substring(startIndex, endIndex + 1);
+          try {
+            JSON.parse(jsonText);
+            return jsonText;
+          } catch {
+            // Fall through to error
+          }
+        }
+      }
+      
+      // If we still can't find valid JSON, throw an error
+      throw new Error(`Could not extract valid JSON from response. Response starts with: ${cleaned.substring(0, 100)}...`);
+    }
   }
 }
 
