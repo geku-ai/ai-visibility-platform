@@ -34,8 +34,11 @@ export class LLMRouterService {
     // Get all available providers with API keys, prioritizing primary
     const availableProviders = await this.getAllAvailableProviders(primaryConfig.provider);
     
+    console.log(`[LLM Router] Found ${availableProviders.length} available LLM provider(s) for workspace ${workspaceId}:`, 
+      availableProviders.map(p => `${p.provider} (${p.model})`).join(', '));
+    
     if (availableProviders.length === 0) {
-      console.error(`No LLM providers available for workspace ${workspaceId}. All API keys are missing.`);
+      console.error(`[LLM Router] No LLM providers available for workspace ${workspaceId}. All API keys are missing.`);
       // Return a graceful fallback response instead of throwing
       return this.createFallbackResponse(prompt);
     }
@@ -45,22 +48,24 @@ export class LLMRouterService {
     
     for (const providerConfig of availableProviders) {
       try {
-        console.log(`[LLM Router] Attempting provider: ${providerConfig.provider} (model: ${providerConfig.model})`);
+        console.log(`[LLM Router] 🔄 Attempting provider: ${providerConfig.provider} (model: ${providerConfig.model})`);
         const provider = await this.createProvider(providerConfig);
         const response = await provider.query(prompt, { ...options, model: providerConfig.model });
-        console.log(`[LLM Router] ✅ Success with provider: ${providerConfig.provider}`);
+        console.log(`[LLM Router] ✅ Success with provider: ${providerConfig.provider} (model: ${providerConfig.model})`);
         return response;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.warn(`[LLM Router] ❌ Provider ${providerConfig.provider} failed: ${errorMessage}`);
         errors.push({ provider: providerConfig.provider, error: errorMessage });
-        continue; // Try next provider
+        // Continue to next provider - don't give up yet
+        continue;
       }
     }
     
     // All providers failed - log all errors and return graceful fallback
-    console.error(`[LLM Router] All ${availableProviders.length} LLM providers failed for workspace ${workspaceId}:`, errors);
-    return this.createFallbackResponse(prompt);
+    console.error(`[LLM Router] ⚠️ All ${availableProviders.length} LLM providers failed for workspace ${workspaceId}. Errors:`, 
+      errors.map(e => `${e.provider}: ${e.error}`).join('; '));
+    return this.createFallbackResponse(prompt, errors);
   }
 
   /**
@@ -94,11 +99,16 @@ export class LLMRouterService {
 
   /**
    * Get all available providers with API keys, prioritizing the primary provider
+   * This ensures we try ALL configured providers, not just the primary one
    */
   private async getAllAvailableProviders(primaryProvider: string): Promise<LLMConfig[]> {
+    // Check ALL possible LLM providers - we want exhaustive coverage
     const allProviders: string[] = ['openai', 'anthropic', 'gemini'];
     const available: LLMConfig[] = [];
     const others: LLMConfig[] = [];
+    const skipped: string[] = [];
+    
+    console.log(`[LLM Router] Checking ${allProviders.length} LLM providers for availability...`);
     
     // Check each provider for API key availability
     for (const provider of allProviders) {
@@ -107,18 +117,27 @@ export class LLMRouterService {
         // If this is the primary provider, add it first
         if (provider === primaryProvider) {
           available.unshift(config);
+          console.log(`[LLM Router] ✅ ${provider} is available (primary provider, model: ${config.model})`);
         } else {
           others.push(config);
+          console.log(`[LLM Router] ✅ ${provider} is available (fallback provider, model: ${config.model})`);
         }
       } catch (error) {
         // API key not available for this provider, skip it
-        console.log(`[LLM Router] Provider ${provider} not available (missing API key)`);
-        continue;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.log(`[LLM Router] ⚠️ Provider ${provider} not available: ${errorMsg}`);
+        skipped.push(provider);
       }
     }
     
+    if (skipped.length > 0) {
+      console.log(`[LLM Router] Skipped ${skipped.length} provider(s) due to missing API keys: ${skipped.join(', ')}`);
+    }
+    
     // Combine: primary first, then others
-    return [...available, ...others];
+    const result = [...available, ...others];
+    console.log(`[LLM Router] Will attempt ${result.length} provider(s) in order: ${result.map(p => p.provider).join(' → ')}`);
+    return result;
   }
 
   /**
@@ -190,20 +209,25 @@ export class LLMRouterService {
    * Create a graceful fallback response when all providers fail
    * This ensures the application doesn't break even if all LLMs are unavailable
    */
-  private createFallbackResponse(prompt: string): LLMResponse {
-    console.warn('[LLM Router] All providers failed, returning fallback response');
+  private createFallbackResponse(prompt: string, errors?: Array<{ provider: string; error: string }>): LLMResponse {
+    const errorSummary = errors && errors.length > 0 
+      ? ` Errors: ${errors.map(e => `${e.provider}: ${e.error}`).join('; ')}`
+      : '';
+    
+    console.warn(`[LLM Router] All providers failed, returning fallback response.${errorSummary}`);
     
     // Return a basic response that won't break the application
     // Services should handle this gracefully
     return {
-      text: `[LLM Service Unavailable] Unable to process request at this time. All LLM providers are currently unavailable. Please check your API keys and provider status.`,
-      content: `[LLM Service Unavailable] Unable to process request at this time. All LLM providers are currently unavailable. Please check your API keys and provider status.`,
+      text: `[LLM Service Unavailable] Unable to process request at this time. All LLM providers are currently unavailable. Please check your API keys and provider status.${errorSummary}`,
+      content: `[LLM Service Unavailable] Unable to process request at this time. All LLM providers are currently unavailable. Please check your API keys and provider status.${errorSummary}`,
       usage: { promptTokens: 0, completionTokens: 0 },
       tokens: { prompt: 0, completion: 0 },
       cost: 0,
       metadata: {
         fallback: true,
         error: 'All LLM providers failed',
+        errors: errors || [],
         timestamp: new Date().toISOString(),
       },
     };
