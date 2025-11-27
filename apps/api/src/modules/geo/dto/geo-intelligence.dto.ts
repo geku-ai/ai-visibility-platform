@@ -62,8 +62,10 @@ export class MetadataDto {
 
 /**
  * Full Intelligence Response
+ * Note: Does not implement GEOIntelligenceResponse directly due to Date/string mismatch in metadata
+ * The controller converts Date to string for JSON serialization
  */
-export class GEOIntelligenceResponseDto implements GEOIntelligenceResponse {
+export class GEOIntelligenceResponseDto {
   @ApiProperty()
   workspaceId: string;
 
