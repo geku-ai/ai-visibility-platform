@@ -49,17 +49,72 @@ export interface EngineReasoning {
   };
 }
 
+/**
+ * Comprehensive Visibility Opportunity - AI Search Console Intelligence
+ * Each opportunity represents a specific prompt cluster where visibility can be improved
+ */
 export interface VisibilityOpportunity {
-  prompt: string;
-  intent: string;
-  commercialValue: number; // 0-1
-  industryRelevance: number; // 0-1
-  currentVisibility: number; // 0-1
-  opportunityGap: number; // 0-1 (how much room for improvement)
-  competitorControl: number; // 0-1 (how much competitors dominate)
-  recommendedAction: string;
-  expectedImpact: string;
-  engines: string[]; // Which engines this applies to
+  /** Clean, human-readable opportunity title (e.g., "best online travel agencies for booking hotels") */
+  title: string;
+  
+  /** AI Visibility breakdown per engine + weighted average */
+  aiVisibility: {
+    chatgpt: number; // 0-100 percentage
+    claude: number; // 0-100 percentage
+    gemini: number; // 0-100 percentage
+    perplexity: number; // 0-100 percentage
+    weighted: number; // Weighted average across all engines
+  };
+  
+  /** Current owners (competitors) for this opportunity */
+  competitors: Array<{
+    name: string; // Competitor brand/domain name
+    rankStrength: number; // 0-100, how strong their ranking is
+    sentiment: 'positive' | 'neutral' | 'negative';
+    evidenceSnippet: string; // Raw evidence snippet from AI response
+    engines: {
+      chatgpt: number; // Rank position (0 if not found)
+      claude: number;
+      gemini: number;
+      perplexity: number;
+    };
+    confidence: number; // 0-1 confidence in this competitor data
+  }>;
+  
+  /** Root cause analysis - why you are losing this opportunity */
+  whyYouAreLosing: string;
+  
+  /** Opportunity Impact Score (0-100%) - how much improvement is possible */
+  opportunityImpact: number;
+  
+  /** Difficulty Score (0-100%) - how hard it will be to capture this opportunity */
+  difficulty: number;
+  
+  /** Value Score (0-100%) - adjusted by industry (OTAs → comparison queries high value, etc.) */
+  value: number;
+  
+  /** Concrete, implementable action steps (3-7 items) */
+  actionSteps: string[];
+  
+  /** Raw AI evidence per engine */
+  evidence: {
+    chatgpt: string[]; // Raw ranking snippets
+    claude: string[];
+    gemini: string[];
+    perplexity: string[];
+  };
+  
+  /** Confidence score (0-1) based on evidence completeness and consistency */
+  confidence: number;
+  
+  /** Warnings if data is thin or unreliable */
+  warnings: string[];
+  
+  /** GEO Score impact estimate */
+  geoScoreImpact: {
+    min: number; // Minimum points improvement
+    max: number; // Maximum points improvement
+  };
 }
 
 export interface ThreatAssessment {

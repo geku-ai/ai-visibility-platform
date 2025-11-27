@@ -84,6 +84,9 @@ export { PremiumCompetitorDetectorService } from './competitors/premium-competit
 export { PremiumCitationService } from './citations/premium-citation-service';
 export { PremiumGEOScoreService } from './scoring/premium-geo-score.service';
 
+// Visibility Opportunities service
+export { VisibilityOpportunitiesService } from './opportunities/visibility-opportunities.service';
+
 // Premium types
 export * from './types/premium-response.types';
 export * from './types/diagnostic.types';
