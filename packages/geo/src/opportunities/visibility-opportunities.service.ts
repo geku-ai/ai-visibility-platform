@@ -387,10 +387,16 @@ export class VisibilityOpportunitiesService {
     }
 
     // Add existing root cause analysis
+    // Create a compatible cluster object for identifyRootCauses
+    const clusterForRootCause = {
+      title: cluster.title,
+      prompts: cluster.prompts,
+      intent: cluster.type,
+    };
     const existingCauses = await this.identifyRootCauses(
       workspaceId,
       brandName,
-      cluster,
+      clusterForRootCause,
       aiVisibility,
       competitors,
       evidence
@@ -431,11 +437,17 @@ export class VisibilityOpportunitiesService {
       }
     }
 
+    // Create a compatible cluster object for generateActionSteps
+    const clusterForActionSteps = {
+      title: cluster.title,
+      prompts: cluster.prompts,
+      intent: cluster.type,
+    };
     // Add existing action steps
     const existingSteps = await this.generateActionSteps(
       workspaceId,
       brandName,
-      cluster,
+      clusterForActionSteps,
       whyYouAreLosing,
       industryContext
     );
@@ -882,8 +894,8 @@ export class VisibilityOpportunitiesService {
     // Check EEAT deficiencies
     try {
       const eeatScore = await this.eeatCalculator.calculateEEATScore(workspaceId);
-      if (eeatScore.overall < 60) {
-        causes.push(`EEAT deficiencies: Overall EEAT score is ${eeatScore.overall}/100. Low expertise, experience, authoritativeness, or trustworthiness.`);
+      if (eeatScore.overallScore < 60) {
+        causes.push(`EEAT deficiencies: Overall EEAT score is ${eeatScore.overallScore}/100. Low expertise, experience, authoritativeness, or trustworthiness.`);
       }
     } catch (error) {
       // EEAT calculation might fail, continue

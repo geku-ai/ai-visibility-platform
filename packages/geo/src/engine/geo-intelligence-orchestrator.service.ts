@@ -88,10 +88,10 @@ export class GEOIntelligenceOrchestrator {
 
       // Step 2: Business Summary
       this.logger.log('Step 2: Business Summary');
-      const businessSummary = await this.businessSummary.generateBusinessSummary(
+      const businessSummary = await this.businessSummary.generatePremiumSummary(
         workspaceId,
-        brandName,
-        domain
+        domain,
+        brandName
       );
 
       // Step 3: Prompt Generation
@@ -120,13 +120,11 @@ export class GEOIntelligenceOrchestrator {
 
       // Step 5: Competitor Detection
       this.logger.log('Step 5: Competitor Detection');
-      const competitors = await this.competitorDetector.detectCompetitors(
+      const competitors = await this.competitorDetector.detectPremiumCompetitors(
         workspaceId,
+        domain,
         brandName,
-        {
-          industry: industryContext.primaryIndustry,
-          prompts: prompts.map(p => p.text),
-        }
+        industryContext.primaryIndustry
       );
 
       // Step 6: SOV Analysis per Engine
@@ -138,12 +136,10 @@ export class GEOIntelligenceOrchestrator {
 
       // Step 7: Citation Analysis
       this.logger.log('Step 7: Citation Analysis');
-      const citations = await this.citationService.analyzeCitations(
+      const citations = await this.citationService.getPremiumCitations(
         workspaceId,
-        brandName,
-        {
-          competitors: competitors.map(c => c.brandName),
-        }
+        domain,
+        50
       );
 
       // Step 8: Commercial Value Scoring
@@ -201,12 +197,10 @@ export class GEOIntelligenceOrchestrator {
       this.logger.log('Step 13: GEO Score Computation');
       const geoScoreResult = await this.geoScore.calculatePremiumGEOScore(
         workspaceId,
-        brandName,
         domain,
-        {
-          industry: industryContext.primaryIndustry,
-          competitors: competitors.map(c => c.brandName),
-        }
+        brandName,
+        competitors.map(c => c.brandName),
+        industryContext.primaryIndustry
       );
 
       // Step 14: Visibility Opportunities Generation
@@ -269,7 +263,7 @@ export class GEOIntelligenceOrchestrator {
         trustFailures,
         fixDifficulties,
         geoScore: {
-          overall: geoScoreResult.overall,
+          overall: geoScoreResult.total,
           breakdown: geoScoreResult.breakdown,
           improvementPaths: opportunities
             .slice(0, 5)
@@ -344,7 +338,7 @@ export class GEOIntelligenceOrchestrator {
   ): string {
     const parts: string[] = [];
 
-    parts.push(`Current GEO Score: ${geoScore.overall}/100`);
+    parts.push(`Current GEO Score: ${geoScore.total}/100`);
 
     if (geoScore.breakdown) {
       const breakdown = geoScore.breakdown;

@@ -171,10 +171,11 @@ export class PromptClusterService {
         competitorDominance
       );
 
-      // Estimate GEO score lift
+      // Estimate GEO score lift based on commercial value
+      const geoScorePotential = commercialValue.commercialOpportunityScore * 0.1; // Rough estimate
       const expectedGEOScoreLift = {
-        min: Math.round(commercialValue.geoScorePotential * 0.3),
-        max: Math.round(commercialValue.geoScorePotential * 0.7),
+        min: Math.round(geoScorePotential * 0.3),
+        max: Math.round(geoScorePotential * 0.7),
       };
 
       // Calculate value and difficulty

@@ -286,18 +286,33 @@ Return JSON array:
       // Calculate commercial value (weighted by commercial intent and industry relevance)
       const commercialValue = (prompt.commercialIntent * 0.6 + prompt.industryRelevance * 0.4);
 
+      // Note: This method creates a different structure than VisibilityOpportunity
+      // It's used for prompt-level diagnostics, not the full opportunity structure
       opportunities.push({
-        prompt: prompt.text,
-        intent: prompt.intent,
-        commercialValue,
-        industryRelevance: prompt.industryRelevance,
-        currentVisibility,
-        opportunityGap,
-        competitorControl,
-        recommendedAction: this.generatePromptAction(prompt, currentVisibility, competitorControl),
-        expectedImpact: this.calculateExpectedImpact(prompt, opportunityGap),
-        engines: prompt.evidence?.hasBeenTested ? ['PERPLEXITY', 'AIO', 'BRAVE'] : [],
-      });
+        title: prompt.text, // Use title instead of prompt
+        aiVisibility: {
+          chatgpt: currentVisibility * 100,
+          claude: currentVisibility * 100,
+          gemini: currentVisibility * 100,
+          perplexity: currentVisibility * 100,
+          weighted: currentVisibility * 100,
+        },
+        competitors: [],
+        whyYouAreLosing: `Low visibility (${(currentVisibility * 100).toFixed(0)}%) on high-value prompt`,
+        opportunityImpact: opportunityGap * 100,
+        difficulty: 50,
+        value: commercialValue * 100,
+        actionSteps: [this.generatePromptAction(prompt, currentVisibility, competitorControl)],
+        evidence: {
+          chatgpt: [],
+          claude: [],
+          gemini: [],
+          perplexity: [],
+        },
+        confidence: prompt.evidence?.confidence || 0.7,
+        warnings: [],
+        geoScoreImpact: { min: 0, max: 0 },
+      } as VisibilityOpportunity);
     }
 
     // Sort by opportunity (commercial value * opportunity gap)
@@ -321,14 +336,14 @@ Return JSON array:
   }> {
     const insights: DiagnosticInsight[] = [];
 
-    // Analyze prompt performance
-    const highValuePrompts = opportunities.filter(o => o.commercialValue > 0.7);
-    const lowVisibilityPrompts = opportunities.filter(o => o.currentVisibility < 0.3);
-    const competitorControlled = opportunities.filter(o => o.competitorControl > 0.6);
+    // Analyze prompt performance using VisibilityOpportunity structure
+    const highValuePrompts = opportunities.filter(o => o.value > 70);
+    const lowVisibilityPrompts = opportunities.filter(o => o.aiVisibility.weighted < 30);
+    const competitorControlled = opportunities.filter(o => o.competitors.length > 3);
 
     // High-value, low-visibility = opportunity
     const missedOpportunities = opportunities.filter(
-      o => o.commercialValue > 0.7 && o.currentVisibility < 0.3
+      o => o.value > 70 && o.aiVisibility.weighted < 30
     );
 
     if (missedOpportunities.length > 0) {
@@ -340,7 +355,7 @@ Return JSON array:
         reasoning: 'These prompts have strong commercial intent but low current visibility, representing significant opportunity',
         impact: 'high',
         confidence: 0.9,
-        evidence: missedOpportunities.map(o => `${o.prompt}: ${(o.opportunityGap * 100).toFixed(0)}% gap`),
+        evidence: missedOpportunities.map(o => `${o.title}: ${(100 - o.aiVisibility.weighted).toFixed(0)}% gap`),
       });
     }
 
@@ -354,12 +369,12 @@ Return JSON array:
         reasoning: 'Competitors are winning visibility on these prompts, reducing your share of voice',
         impact: 'high',
         confidence: 0.8,
-        evidence: competitorControlled.map(o => `${o.prompt}: ${(o.competitorControl * 100).toFixed(0)}% competitor control`),
+        evidence: competitorControlled.map(o => `${o.title}: ${o.competitors.length} competitors`),
       });
     }
 
     // Low visibility across all prompts = weakness
-    const avgVisibility = opportunities.reduce((sum, o) => sum + o.currentVisibility, 0) / opportunities.length;
+    const avgVisibility = opportunities.reduce((sum, o) => sum + o.aiVisibility.weighted, 0) / opportunities.length / 100;
     if (avgVisibility < 0.3) {
       insights.push({
         type: 'weakness',
@@ -388,8 +403,8 @@ Return JSON array:
         priority: 'high',
         difficulty: 'medium',
         expectedImpact: {
-          visibilityGain: Math.round(missedOpportunities.reduce((sum, o) => sum + o.opportunityGap, 0) / missedOpportunities.length * 100),
-          description: `Expected ${Math.round(missedOpportunities.reduce((sum, o) => sum + o.opportunityGap, 0) / missedOpportunities.length * 100)}% visibility gain`,
+          visibilityGain: Math.round(missedOpportunities.reduce((sum, o) => sum + (100 - o.aiVisibility.weighted), 0) / missedOpportunities.length),
+          description: `Expected ${Math.round(missedOpportunities.reduce((sum, o) => sum + (100 - o.aiVisibility.weighted), 0) / missedOpportunities.length)}% visibility gain`,
         },
         steps: [
           'Identify content gaps for high-value prompts',
@@ -399,7 +414,7 @@ Return JSON array:
         ],
         relatedInsights: insights.filter(i => i.type === 'opportunity').map((_, idx) => `insight-${idx}`),
         estimatedTime: '2-4 weeks',
-        evidence: missedOpportunities.map(o => o.prompt),
+        evidence: missedOpportunities.map(o => o.title),
       });
     }
 

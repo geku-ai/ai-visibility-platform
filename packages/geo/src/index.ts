@@ -108,9 +108,6 @@ export { GEOIntelligenceOrchestrator } from './engine/geo-intelligence-orchestra
 // Enhanced Recommendations
 export { EnhancedRecommendationService } from './recommendations/enhanced-recommendation.service';
 
-// Visibility Opportunities (already integrated)
-export { VisibilityOpportunitiesService } from './opportunities/visibility-opportunities.service';
-
 // Industry weights config
 export * from './config/industry-weights.config';
 
