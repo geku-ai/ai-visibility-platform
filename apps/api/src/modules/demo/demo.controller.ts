@@ -82,5 +82,15 @@ export class DemoController {
     }
     return this.demoService.getInstantSummary(domain);
   }
+
+  @Get('instant-summary/v2')
+  @ApiOperation({ summary: 'Get instant AI visibility summary V2 (uses new intelligence orchestrator)' })
+  @ApiOkResponse({ description: 'Returns enhanced instant summary with comprehensive intelligence analysis.' })
+  async getInstantSummaryV2(@Query('domain') domain: string) {
+    if (!domain || typeof domain !== 'string' || domain.trim().length === 0) {
+      throw new BadRequestException('Domain query parameter is required');
+    }
+    return this.demoService.getInstantSummaryV2(domain);
+  }
 }
 

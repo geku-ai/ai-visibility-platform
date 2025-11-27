@@ -1,6 +1,7 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { RecommendationsController } from './recommendations.controller';
-import { PrescriptiveRecommendationEngine } from '@ai-visibility/geo';
+import { PrescriptiveRecommendationEngine, EnhancedRecommendationService, GEOIntelligenceOrchestrator } from '@ai-visibility/geo';
+import { GEOModule } from '../geo/geo.module';
 import { 
   GEOMaturityCalculatorService, 
   StructuralScoringService, 
@@ -11,14 +12,33 @@ import {
   CitationClassifierService,
   EvidenceFactExtractorService,
   EVIDENCE_FACT_EXTRACTOR_TOKEN,
+  // Dependencies for EnhancedRecommendationService and GEOIntelligenceOrchestrator
+  IndustryDetectorService,
+  PremiumBusinessSummaryService,
+  EvidenceBackedPromptGeneratorService,
+  PromptClusterService,
+  PremiumCompetitorDetectorService,
+  EvidenceBackedShareOfVoiceService,
+  PremiumCitationService,
+  CommercialValueImpactService,
+  EnginePatternService,
+  CompetitorAdvantageService,
+  TrustFailureService,
+  FixDifficultyService,
+  VisibilityOpportunitiesService,
+  PremiumGEOScoreService,
+  EvidenceCollectorService,
+  EEATCalculatorService,
 } from '@ai-visibility/geo';
 import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
 import { EventEmitterService } from '../events/event-emitter.service';
 import { BullModule } from '@nestjs/bullmq';
+import { PrismaService } from '../database/prisma.service';
 
 @Module({
   imports: [
     BullModule.registerQueue({ name: 'recommendationRefresh' }),
+    forwardRef(() => GEOModule), // Import GEO module to access orchestrator
   ],
   providers: [
     // Core LLM services (needed by FactExtractorService from validation package if it's used)
@@ -42,10 +62,13 @@ import { BullModule } from '@nestjs/bullmq';
     GEOMaturityCalculatorService,
     StructuralScoringService,
     EvidenceGraphBuilderService,
+    // Enhanced recommendation service (depends on services from GEO module)
+    EnhancedRecommendationService,
+    PrismaService,
     EventEmitterService,
   ],
   controllers: [RecommendationsController],
-  exports: [PrescriptiveRecommendationEngine],
+  exports: [PrescriptiveRecommendationEngine, EnhancedRecommendationService],
 })
 export class RecommendationsModule {}
 

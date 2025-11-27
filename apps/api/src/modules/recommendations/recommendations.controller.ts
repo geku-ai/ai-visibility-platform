@@ -3,15 +3,17 @@
  * Provides endpoints for prescriptive GEO recommendations
  */
 
-import { Controller, Get, Post, Body, Query, UseGuards } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiBody } from '@nestjs/swagger';
+import { Controller, Get, Post, Body, Query, Param, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiBody, ApiParam } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { WorkspaceAccessGuard } from '../../guards/workspace-access.guard';
 import { GetWorkspaceId } from '../../decorators/workspace-id.decorator';
-import { PrescriptiveRecommendationEngine, Recommendation } from '@ai-visibility/geo';
+import { PrescriptiveRecommendationEngine, Recommendation, EnhancedRecommendationService, GEOIntelligenceOrchestrator } from '@ai-visibility/geo';
 import { EventEmitterService } from '../events/event-emitter.service';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
+import { PrismaService } from '../database/prisma.service';
+import { RecommendationsResponseDto, RecommendationsQueryDto } from '../geo/dto/geo-intelligence.dto';
 
 @ApiTags('Recommendations')
 @ApiBearerAuth()
@@ -20,9 +22,133 @@ import { InjectQueue } from '@nestjs/bullmq';
 export class RecommendationsController {
   constructor(
     private recommendationEngine: PrescriptiveRecommendationEngine,
+    private enhancedRecommendations: EnhancedRecommendationService,
+    private orchestrator: GEOIntelligenceOrchestrator,
     private eventEmitter: EventEmitterService,
+    private prisma: PrismaService,
     @InjectQueue('recommendationRefresh') private recommendationQueue: Queue
   ) {}
+
+  /**
+   * Get enhanced recommendations (new endpoint)
+   * GET /v1/recommendations/:workspaceId
+   * Note: Defined before GET / to ensure proper route matching
+   */
+  @Get(':workspaceId')
+  @ApiOperation({
+    summary: 'Get enhanced recommendations',
+    description: 'Returns actionable recommendations with filtering and pagination support.',
+  })
+  @ApiParam({ name: 'workspaceId', description: 'Workspace ID' })
+  @ApiQuery({ name: 'priority', required: false, enum: ['critical', 'high', 'medium', 'low'], description: 'Filter by priority' })
+  @ApiQuery({ name: 'category', required: false, enum: ['content', 'schema', 'citations', 'trust', 'technical', 'positioning', 'competitor'], description: 'Filter by category' })
+  @ApiQuery({ name: 'maxDifficulty', required: false, type: Number, description: 'Maximum difficulty (0-100)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, default: 50, description: 'Number of recommendations to return' })
+  @ApiQuery({ name: 'offset', required: false, type: Number, default: 0, description: 'Offset for pagination' })
+  @ApiResponse({
+    status: 200,
+    description: 'Recommendations returned successfully',
+    type: RecommendationsResponseDto,
+  })
+  async getEnhancedRecommendations(
+    @Param('workspaceId') workspaceId: string,
+    @Query() query: RecommendationsQueryDto,
+  ): Promise<RecommendationsResponseDto | { error: { code: string; message: string; details?: any } }> {
+    try {
+      // Validate workspace
+      const workspace = await this.prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { id: true, domain: true, brandName: true },
+      });
+
+      if (!workspace) {
+        return {
+          error: {
+            code: 'MISSING_WORKSPACE',
+            message: 'Workspace not found',
+            details: { workspaceId },
+          },
+        };
+      }
+
+      const brandName = workspace.brandName || 'Unknown';
+
+      // Get full intelligence context for recommendations
+      const intelligence = await this.orchestrator.orchestrateIntelligence(
+        workspaceId,
+        brandName,
+        workspace.domain || '',
+        {
+          includeOpportunities: true,
+          includeRecommendations: false,
+          maxOpportunities: 20,
+        }
+      );
+
+      // Generate recommendations
+      const recommendations = await this.enhancedRecommendations.generateEnhancedRecommendations(
+        workspaceId,
+        brandName,
+        {
+          trustFailures: intelligence.trustFailures,
+          competitorAnalyses: intelligence.competitorAnalyses,
+          promptClusters: intelligence.promptClusters,
+          fixDifficulties: intelligence.fixDifficulties,
+          commercialValues: intelligence.commercialValues,
+          geoScore: intelligence.geoScore,
+        }
+      );
+
+      // Apply filters
+      let filtered = recommendations;
+
+      if (query.priority) {
+        filtered = filtered.filter(r => r.priority === query.priority);
+      }
+
+      if (query.category) {
+        filtered = filtered.filter(r => r.category === query.category);
+      }
+
+      if (query.maxDifficulty !== undefined) {
+        const difficultyMap = { easy: 30, medium: 60, hard: 90 };
+        const maxDiff = query.maxDifficulty;
+        filtered = filtered.filter(r => {
+          const rDiff = difficultyMap[r.difficulty] || 50;
+          return rDiff <= maxDiff;
+        });
+      }
+
+      // Apply pagination
+      const offset = query.offset || 0;
+      const limit = query.limit || 50;
+      const paginated = filtered.slice(offset, offset + limit);
+
+      // Count by priority
+      const highPriorityCount = filtered.filter(r => r.priority === 'high' || r.priority === 'critical').length;
+
+      return {
+        workspaceId,
+        domain: workspace.domain || '',
+        recommendations: paginated,
+        metadata: {
+          generatedAt: new Date().toISOString(),
+          total: filtered.length,
+          highPriorityCount,
+          confidence: this.calculateAverageConfidence(paginated),
+          warnings: [],
+        },
+      };
+    } catch (error) {
+      return {
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: error instanceof Error ? error.message : String(error),
+          details: { workspaceId },
+        },
+      };
+    }
+  }
 
   @Get()
   @ApiOperation({ summary: 'Get prescriptive recommendations' })
@@ -56,6 +182,15 @@ export class RecommendationsController {
 
     // Generate if not found
     return this.recommendationEngine.generateRecommendations(targetWorkspaceId);
+  }
+
+  /**
+   * Calculate average confidence
+   */
+  private calculateAverageConfidence(items: Array<{ confidence?: number }>): number {
+    if (items.length === 0) return 0.5;
+    const sum = items.reduce((acc, item) => acc + (item.confidence || 0.5), 0);
+    return sum / items.length;
   }
 
   @Post('refresh')

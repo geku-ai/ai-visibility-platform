@@ -4,6 +4,7 @@ import { EvidenceController } from './evidence.controller';
 import { MaturityController } from './maturity.controller';
 import { EEATController } from './eeat.controller';
 import { DashboardController } from './dashboard.controller';
+import { GEOIntelligenceController } from './geo-intelligence.controller';
 import { GEODataService } from './geo-data.service';
 import { 
   EnhancedGEOScoringService,
@@ -23,6 +24,25 @@ import {
   FactExtractorService as EvidenceFactExtractorService,
   DashboardAggregatorService,
   EVIDENCE_FACT_EXTRACTOR_TOKEN,
+  // New intelligence engines
+  GEOIntelligenceOrchestrator,
+  VisibilityOpportunitiesService,
+  CommercialValueImpactService,
+  PromptClusterService,
+  EnginePatternService,
+  CompetitorAdvantageService,
+  TrustFailureService,
+  FixDifficultyService,
+  EnhancedRecommendationService,
+  // Required dependencies
+  IndustryDetectorService,
+  PremiumBusinessSummaryService,
+  EvidenceBackedPromptGeneratorService,
+  PremiumCompetitorDetectorService,
+  EvidenceBackedShareOfVoiceService,
+  PremiumCitationService,
+  PremiumGEOScoreService,
+  EvidenceCollectorService,
 } from '@ai-visibility/geo';
 import { PrismaService } from '../database/prisma.service';
 import { EventsModule } from '../events/events.module';
@@ -66,6 +86,23 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     DirectoryPresenceAnalyzerService,
     EEATCalculatorService,
     DashboardAggregatorService,
+    // New intelligence engines
+    IndustryDetectorService,
+    PremiumBusinessSummaryService,
+    EvidenceBackedPromptGeneratorService,
+    PremiumCompetitorDetectorService,
+    EvidenceBackedShareOfVoiceService,
+    PremiumCitationService,
+    PremiumGEOScoreService,
+    EvidenceCollectorService,
+    CommercialValueImpactService,
+    PromptClusterService,
+    EnginePatternService,
+    CompetitorAdvantageService,
+    TrustFailureService,
+    FixDifficultyService,
+    VisibilityOpportunitiesService,
+    GEOIntelligenceOrchestrator,
     PrismaService,
   ],
   controllers: [
@@ -74,6 +111,7 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     MaturityController,
     EEATController,
     DashboardController,
+    GEOIntelligenceController,
   ],
   exports: [
     EnhancedGEOScoringService,
@@ -85,6 +123,8 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     PrescriptiveRecommendationEngine,
     EEATCalculatorService,
     DashboardAggregatorService,
+    GEOIntelligenceOrchestrator,
+    VisibilityOpportunitiesService,
   ],
 })
 export class GEOModule {}
