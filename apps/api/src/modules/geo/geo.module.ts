@@ -43,6 +43,7 @@ import {
   PremiumCitationService,
   PremiumGEOScoreService,
   EvidenceCollectorService,
+  EntityExtractorService,
 } from '@ai-visibility/geo';
 import { PrismaService } from '../database/prisma.service';
 import { EventsModule } from '../events/events.module';
@@ -88,6 +89,7 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     DashboardAggregatorService,
     // New intelligence engines
     IndustryDetectorService,
+    EntityExtractorService, // Required by PremiumBusinessSummaryService
     PremiumBusinessSummaryService,
     EvidenceBackedPromptGeneratorService,
     PremiumCompetitorDetectorService,
