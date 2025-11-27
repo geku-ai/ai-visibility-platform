@@ -105,6 +105,7 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     CompetitorAdvantageService,
     TrustFailureService,
     FixDifficultyService,
+    EnhancedRecommendationService, // Required by GEOIntelligenceOrchestrator
     VisibilityOpportunitiesService,
     GEOIntelligenceOrchestrator,
     PrismaService,
