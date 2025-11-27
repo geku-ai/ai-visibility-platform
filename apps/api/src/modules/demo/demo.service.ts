@@ -2175,10 +2175,10 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       );
 
       // Step 2: Business Summary
-      const businessSummary = await this.premiumSummary.generateBusinessSummary(
+      const businessSummary = await this.premiumSummary.generatePremiumSummary(
         workspaceId,
-        brand,
-        normalized.href
+        normalized.href,
+        brand
       );
 
       // Step 3: Generate small set of high-signal prompts
@@ -2259,8 +2259,8 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       // Build top insights
       const topInsights: string[] = [];
       
-      if (geoScoreResult.overall < 50) {
-        topInsights.push(`GEO Score is ${geoScoreResult.overall}/100 - significant improvement opportunity`);
+      if (geoScoreResult.total < 50) {
+        topInsights.push(`GEO Score is ${geoScoreResult.total}/100 - significant improvement opportunity`);
       }
 
       if (businessSummary) {
@@ -2284,11 +2284,11 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       }
 
       // CTA hints
-      const shouldSignUp = geoScoreResult.overall < 70 || visibleEngines < 2;
+      const shouldSignUp = geoScoreResult.total < 70 || visibleEngines < 2;
       const reasons: string[] = [];
       
-      if (geoScoreResult.overall < 70) {
-        reasons.push(`GEO Score of ${geoScoreResult.overall}/100 indicates optimization opportunities`);
+      if (geoScoreResult.total < 70) {
+        reasons.push(`GEO Score of ${geoScoreResult.total}/100 indicates optimization opportunities`);
       }
       if (visibleEngines < 2) {
         reasons.push(`Limited visibility across AI engines (${visibleEngines}/4)`);
@@ -2310,14 +2310,14 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           whyYouStandOut: businessSummary ? (businessSummary as any).differentiators?.[0] : undefined,
         },
         geoScore: {
-          overall: geoScoreResult.overall,
+          overall: geoScoreResult.total,
           components: {
             visibility: geoScoreResult.breakdown?.aiVisibility?.score || 0,
             trust: geoScoreResult.breakdown?.eeat?.score || 0,
             citations: geoScoreResult.breakdown?.citations?.score || 0,
             schema: geoScoreResult.breakdown?.schemaTechnical?.score || 0,
           },
-          explanation: geoScoreResult.explanation || `GEO Score: ${geoScoreResult.overall}/100`,
+          explanation: `GEO Score: ${geoScoreResult.total}/100`,
         },
         visibilitySnapshot: {
           engines,

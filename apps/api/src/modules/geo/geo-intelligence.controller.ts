@@ -136,7 +136,7 @@ export class GEOIntelligenceController {
       let intelligence: GEOIntelligenceResponseDto;
 
       try {
-        intelligence = await this.orchestrator.orchestrateIntelligence(
+        const rawIntelligence = await this.orchestrator.orchestrateIntelligence(
           workspaceId,
           brandName,
           domain,
@@ -145,7 +145,19 @@ export class GEOIntelligenceController {
             includeRecommendations: true,
             maxOpportunities: 50,
           }
-        ) as GEOIntelligenceResponseDto;
+        );
+        
+        // Convert to DTO format (Date to string, ensure metadata has all fields)
+        intelligence = {
+          ...rawIntelligence,
+          metadata: {
+            ...rawIntelligence.metadata,
+            generatedAt: rawIntelligence.metadata.generatedAt instanceof Date 
+              ? rawIntelligence.metadata.generatedAt.toISOString()
+              : rawIntelligence.metadata.generatedAt,
+            industry: rawIntelligence.metadata.industry || rawIntelligence.industry?.primary || 'Unknown',
+          },
+        } as GEOIntelligenceResponseDto;
       } catch (error) {
         this.logger.error(`Orchestrator failed: ${error instanceof Error ? error.message : String(error)}`);
         
@@ -262,21 +274,29 @@ export class GEOIntelligenceController {
       const paginated = filtered.slice(offset, offset + limit);
 
       // Get industry for response
-      const industryResult = await this.prisma.$queryRaw<{ industry: string }[]>`
-        SELECT "industry" FROM "workspaces" WHERE "id" = ${workspaceId} LIMIT 1
-      `.catch(() => []);
+      let industry = 'Unknown';
+      try {
+        const workspace = await this.prisma.workspace.findUnique({
+          where: { id: workspaceId },
+          select: { industry: true },
+        });
+        industry = workspace?.industry || 'Unknown';
+      } catch (error) {
+        this.logger.warn(`Could not fetch industry: ${error instanceof Error ? error.message : String(error)}`);
+      }
 
       return {
         workspaceId,
         domain,
         industry: {
-          primary: industryResult[0]?.industry || 'Unknown',
+          primary: industry,
           confidence: 0.8,
         },
         opportunities: paginated,
         metadata: {
           generatedAt: new Date().toISOString(),
           serviceVersion: '2.0.0',
+          industry: industry,
           confidence: this.calculateAverageConfidence(paginated),
           warnings: [],
         },
@@ -366,8 +386,10 @@ export class GEOIntelligenceController {
       }
 
       if (query.maxDifficulty !== undefined) {
-        const difficultyMap = { easy: 30, medium: 60, hard: 90 };
-        const maxDiff = difficultyMap[query.maxDifficulty as keyof typeof difficultyMap] || query.maxDifficulty;
+        const difficultyMap: Record<string, number> = { easy: 30, medium: 60, hard: 90 };
+        const maxDiff = typeof query.maxDifficulty === 'string' 
+          ? (difficultyMap[query.maxDifficulty] || query.maxDifficulty)
+          : query.maxDifficulty;
         filtered = filtered.filter(r => {
           const rDiff = difficultyMap[r.difficulty] || 50;
           return rDiff <= maxDiff;
@@ -478,6 +500,7 @@ export class GEOIntelligenceController {
       metadata: {
         generatedAt: new Date().toISOString(),
         serviceVersion: '2.0.0',
+        industry: 'Unknown',
         confidence: 0.3,
         warnings,
         errors,

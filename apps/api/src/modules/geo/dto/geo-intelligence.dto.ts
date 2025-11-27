@@ -41,6 +41,9 @@ export class MetadataDto {
   @ApiProperty({ example: '2.0.0' })
   serviceVersion: string;
 
+  @ApiProperty({ example: 'travel' })
+  industry: string;
+
   @ApiProperty({ example: 0.88 })
   confidence: number;
 
@@ -49,6 +52,12 @@ export class MetadataDto {
 
   @ApiProperty({ type: [ErrorResponseDto], required: false })
   errors?: ErrorResponseDto[];
+
+  @ApiProperty({ required: false })
+  total?: number;
+
+  @ApiProperty({ required: false })
+  highPriorityCount?: number;
 }
 
 /**

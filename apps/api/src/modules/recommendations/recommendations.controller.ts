@@ -43,8 +43,8 @@ export class RecommendationsController {
   @ApiQuery({ name: 'priority', required: false, enum: ['critical', 'high', 'medium', 'low'], description: 'Filter by priority' })
   @ApiQuery({ name: 'category', required: false, enum: ['content', 'schema', 'citations', 'trust', 'technical', 'positioning', 'competitor'], description: 'Filter by category' })
   @ApiQuery({ name: 'maxDifficulty', required: false, type: Number, description: 'Maximum difficulty (0-100)' })
-  @ApiQuery({ name: 'limit', required: false, type: Number, default: 50, description: 'Number of recommendations to return' })
-  @ApiQuery({ name: 'offset', required: false, type: Number, default: 0, description: 'Offset for pagination' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Number of recommendations to return (default: 50)' })
+  @ApiQuery({ name: 'offset', required: false, type: Number, description: 'Offset for pagination (default: 0)' })
   @ApiResponse({
     status: 200,
     description: 'Recommendations returned successfully',
@@ -133,6 +133,8 @@ export class RecommendationsController {
         recommendations: paginated,
         metadata: {
           generatedAt: new Date().toISOString(),
+          serviceVersion: '2.0.0',
+          industry: 'Unknown', // Could be fetched from workspace if needed
           total: filtered.length,
           highPriorityCount,
           confidence: this.calculateAverageConfidence(paginated),
