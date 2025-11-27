@@ -102,6 +102,15 @@ export { CompetitorAdvantageService } from './competitors/competitor-advantage.s
 export { TrustFailureService } from './trust/trust-failure.service';
 export { FixDifficultyService } from './difficulty/fix-difficulty.service';
 
+// GEO Intelligence Orchestrator
+export { GEOIntelligenceOrchestrator } from './engine/geo-intelligence-orchestrator.service';
+
+// Enhanced Recommendations
+export { EnhancedRecommendationService } from './recommendations/enhanced-recommendation.service';
+
+// Visibility Opportunities (already integrated)
+export { VisibilityOpportunitiesService } from './opportunities/visibility-opportunities.service';
+
 // Industry weights config
 export * from './config/industry-weights.config';
 

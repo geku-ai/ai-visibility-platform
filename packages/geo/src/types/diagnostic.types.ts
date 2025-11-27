@@ -432,6 +432,124 @@ export interface FixDifficultyAnalysis {
 }
 
 /**
+ * Unified GEO Intelligence Response
+ * 
+ * Complete backend response from GEO Intelligence Orchestrator
+ * Contains all analysis results in structured format
+ */
+export interface GEOIntelligenceResponse {
+  workspaceId: string;
+  brandName: string;
+  domain: string;
+  
+  /** Industry detection results */
+  industry: {
+    primary: string;
+    secondary: string[];
+    confidence: number;
+    evidence: any;
+  };
+  
+  /** Business summary */
+  businessSummary: any;
+  
+  /** Generated prompts */
+  prompts: Array<{
+    text: string;
+    intent: string;
+    commercialValue: number;
+    industryRelevance: number;
+    evidence?: any;
+  }>;
+  
+  /** Prompt clusters */
+  promptClusters: PromptCluster[];
+  
+  /** Competitors */
+  competitors: Array<{
+    brandName: string;
+    domain: string;
+    type: string;
+    confidence: number;
+    visibility: any;
+  }>;
+  
+  /** Share of voice analysis */
+  sovAnalysis: any[];
+  
+  /** Citation analysis */
+  citations: any;
+  
+  /** Commercial value impacts */
+  commercialValues: CommercialValueImpact[];
+  
+  /** Cross-engine patterns */
+  crossEnginePatterns: CrossEnginePattern;
+  
+  /** Competitor advantage analyses */
+  competitorAnalyses: CompetitorAdvantageAnalysis[];
+  
+  /** Trust failures */
+  trustFailures: TrustFailure[];
+  
+  /** Fix difficulty analyses */
+  fixDifficulties: FixDifficultyAnalysis[];
+  
+  /** GEO Score with improvement paths */
+  geoScore: {
+    overall: number;
+    breakdown: any;
+    improvementPaths: Array<{
+      opportunity: string;
+      impact: { min: number; max: number };
+      difficulty: number;
+    }>;
+    explanation: string;
+  };
+  
+  /** Visibility opportunities */
+  opportunities: VisibilityOpportunity[];
+  
+  /** Actionable recommendations */
+  recommendations: any[];
+  
+  /** Metadata */
+  metadata: {
+    generatedAt: Date;
+    serviceVersion: string;
+    industry: string;
+    confidence: number;
+  };
+}
+
+/**
+ * Enhanced Recommendation
+ */
+export interface EnhancedRecommendation {
+  id: string;
+  title: string;
+  description: string;
+  category: 'schema' | 'content' | 'citations' | 'trust' | 'positioning' | 'technical' | 'competitor';
+  priority: 'critical' | 'high' | 'medium' | 'low';
+  difficulty: 'easy' | 'medium' | 'hard';
+  timeEstimate: string;
+  expectedImpact: {
+    geoScoreImprovement?: number;
+    visibilityGain?: number;
+    trustGain?: number;
+    commercialValue?: number;
+    description: string;
+  };
+  steps: string[];
+  relatedTrustFailures?: string[];
+  relatedCompetitors?: string[];
+  relatedPromptClusters?: string[];
+  evidence: string[];
+  confidence: number;
+  reasoning: string;
+}
+
+/**
  * Enhanced PremiumResponse with diagnostic intelligence
  * Note: EvidenceItem is defined in premium-response.types.ts to avoid circular dependencies
  */

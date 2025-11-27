@@ -12,7 +12,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { LLMRouterService } from '@ai-visibility/shared';
-import { VisibilityOpportunity } from '../types/diagnostic.types';
+import { VisibilityOpportunity, PromptCluster } from '../types/diagnostic.types';
 import { IndustryDetectorService, IndustryContext } from '../industry/industry-detector.service';
 import { PremiumBusinessSummaryService } from '../summary/premium-business-summary.service';
 import { EvidenceCollectorService } from '../evidence/evidence-collector.service';
@@ -23,6 +23,12 @@ import { PremiumCitationService } from '../citations/premium-citation-service';
 import { PremiumGEOScoreService } from '../scoring/premium-geo-score.service';
 import { SchemaAuditorService } from '../structural/schema-auditor';
 import { EEATCalculatorService } from '../trust/eeat-calculator.service';
+import { PromptClusterService } from '../prompts/prompt-cluster.service';
+import { EnginePatternService } from '../patterns/engine-pattern.service';
+import { CommercialValueImpactService } from '../value/commercial-value.service';
+import { CompetitorAdvantageService } from '../competitors/competitor-advantage.service';
+import { TrustFailureService } from '../trust/trust-failure.service';
+import { FixDifficultyService } from '../difficulty/fix-difficulty.service';
 
 @Injectable()
 export class VisibilityOpportunitiesService {
@@ -41,6 +47,12 @@ export class VisibilityOpportunitiesService {
     private readonly geoScore: PremiumGEOScoreService,
     private readonly schemaAuditor: SchemaAuditorService,
     private readonly eeatCalculator: EEATCalculatorService,
+    private readonly promptCluster: PromptClusterService,
+    private readonly enginePattern: EnginePatternService,
+    private readonly commercialValue: CommercialValueImpactService,
+    private readonly competitorAdvantage: CompetitorAdvantageService,
+    private readonly trustFailure: TrustFailureService,
+    private readonly fixDifficulty: FixDifficultyService,
   ) {
     this.dbPool = new Pool({
       connectionString: process.env.DATABASE_URL,
@@ -79,11 +91,25 @@ export class VisibilityOpportunitiesService {
       const industryContext = await this.getIndustryContext(workspaceId, domain, brandName);
       this.logger.log(`Detected industry: ${industryContext.industry}`);
 
-      // Step 2: Generate industry-specific prompt clusters
-      const promptClusters = await this.generateIndustryPromptClusters(
+      // Step 2: Generate industry-specific prompt clusters (using LLM reasoning-based clustering)
+      const basePrompts = await this.promptGenerator.generateEvidenceBackedPrompts(
+        workspaceId,
+        {
+          brandName,
+          industry: industryContext.industry,
+          category: industryContext.category,
+          vertical: industryContext.vertical,
+          services: [],
+          marketType: industryContext.marketType,
+          serviceType: industryContext.serviceType,
+        }
+      );
+      
+      const promptClusters = await this.promptCluster.clusterPrompts(
         workspaceId,
         brandName,
-        industryContext
+        basePrompts.map(p => p.text),
+        industryContext.industry
       );
       this.logger.log(`Generated ${promptClusters.length} prompt clusters`);
 
@@ -193,11 +219,12 @@ export class VisibilityOpportunitiesService {
 
   /**
    * Step 3: Analyze a single prompt cluster to create an opportunity
+   * Now integrates all new intelligence engines
    */
   private async analyzePromptCluster(
     workspaceId: string,
     brandName: string,
-    cluster: { title: string; prompts: string[]; intent: string },
+    cluster: PromptCluster,
     industryContext: IndustryContext
   ): Promise<VisibilityOpportunity | null> {
     // Get visibility per engine for this cluster
@@ -213,38 +240,96 @@ export class VisibilityOpportunitiesService {
     // Get evidence per engine
     const evidence = await this.collectEvidencePerEngine(workspaceId, brandName, cluster.prompts);
 
-    // Calculate scores
-    const opportunityImpact = this.calculateOpportunityImpact(aiVisibility, competitors);
-    const difficulty = this.calculateDifficulty(competitors, aiVisibility, industryContext);
-    const value = this.calculateValue(cluster, industryContext, aiVisibility);
+    // NEW: Get commercial value impact
+    const commercialValue = await this.commercialValue.calculateCommercialValue(
+      workspaceId,
+      brandName,
+      cluster.prompts,
+      industryContext.industry
+    );
 
-    // Identify root causes
-    const whyYouAreLosing = await this.identifyRootCauses(
+    // NEW: Get cross-engine patterns
+    const crossEnginePatterns = await this.enginePattern.analyzeCrossEnginePatterns(
+      workspaceId,
+      brandName,
+      cluster.prompts
+    );
+
+    // NEW: Get competitor advantage analysis for top competitors
+    const competitorAdvantages = await Promise.all(
+      competitors.slice(0, 3).map(comp =>
+        this.competitorAdvantage.analyzeCompetitorAdvantage(
+          workspaceId,
+          brandName,
+          comp.name,
+          cluster.prompts
+        )
+      )
+    );
+
+    // NEW: Get trust failures
+    const trustFailures = await this.trustFailure.detectTrustFailures(workspaceId, brandName);
+
+    // NEW: Get fix difficulty
+    const fixDifficulty = await this.fixDifficulty.calculateFixDifficulty(
+      workspaceId,
+      brandName,
+      cluster.title,
+      cluster.prompts
+    );
+
+    // Calculate scores (use cluster values if available, otherwise calculate)
+    const opportunityImpact = cluster.expectedGEOScoreLift
+      ? Math.round((cluster.expectedGEOScoreLift.min + cluster.expectedGEOScoreLift.max) / 2)
+      : this.calculateOpportunityImpact(aiVisibility, competitors);
+    
+    const difficulty = cluster.difficulty || this.calculateDifficulty(competitors, aiVisibility, industryContext);
+    const value = cluster.value || commercialValue.commercialOpportunityScore;
+
+    // Identify root causes (enhanced with trust failures)
+    const whyYouAreLosing = await this.identifyRootCausesEnhanced(
       workspaceId,
       brandName,
       cluster,
       aiVisibility,
       competitors,
-      evidence
+      evidence,
+      trustFailures,
+      competitorAdvantages
     );
 
-    // Generate action steps
-    const actionSteps = await this.generateActionSteps(
+    // Generate action steps (enhanced with fix difficulty)
+    const actionSteps = await this.generateActionStepsEnhanced(
       workspaceId,
       brandName,
       cluster,
       whyYouAreLosing,
-      industryContext
+      industryContext,
+      fixDifficulty,
+      trustFailures
     );
 
-    // Calculate confidence
-    const confidence = this.calculateConfidence(evidence, competitors, aiVisibility);
+    // Calculate confidence (enhanced with all data sources)
+    const confidence = this.calculateConfidenceEnhanced(
+      evidence,
+      competitors,
+      aiVisibility,
+      commercialValue,
+      crossEnginePatterns
+    );
 
-    // Generate warnings
-    const warnings = this.generateWarnings(evidence, competitors, aiVisibility, confidence);
+    // Generate warnings (enhanced)
+    const warnings = this.generateWarningsEnhanced(
+      evidence,
+      competitors,
+      aiVisibility,
+      confidence,
+      trustFailures,
+      crossEnginePatterns
+    );
 
-    // Estimate GEO Score impact
-    const geoScoreImpact = this.estimateGEOScoreImpact(
+    // Estimate GEO Score impact (use cluster data if available)
+    const geoScoreImpact = cluster.expectedGEOScoreLift || this.estimateGEOScoreImpact(
       opportunityImpact,
       value,
       difficulty,
@@ -265,6 +350,156 @@ export class VisibilityOpportunitiesService {
       warnings,
       geoScoreImpact,
     };
+  }
+
+  /**
+   * Enhanced root cause identification with trust failures and competitor advantages
+   */
+  private async identifyRootCausesEnhanced(
+    workspaceId: string,
+    brandName: string,
+    cluster: PromptCluster,
+    aiVisibility: VisibilityOpportunity['aiVisibility'],
+    competitors: VisibilityOpportunity['competitors'],
+    evidence: VisibilityOpportunity['evidence'],
+    trustFailures: any[],
+    competitorAdvantages: any[]
+  ): Promise<string> {
+    const causes: string[] = [];
+
+    // Use cluster root cause if available
+    if (cluster.rootCause) {
+      causes.push(cluster.rootCause);
+    }
+
+    // Add trust failure causes
+    const relevantTrustFailures = trustFailures.filter(tf => tf.severity > 50);
+    for (const failure of relevantTrustFailures.slice(0, 3)) {
+      causes.push(`${failure.category}: ${failure.description}`);
+    }
+
+    // Add competitor advantage causes
+    if (competitorAdvantages.length > 0) {
+      const topCompetitor = competitorAdvantages[0];
+      if (topCompetitor.structuralAdvantageScore > 70) {
+        causes.push(`${topCompetitor.competitor} dominates with structural advantage score ${topCompetitor.structuralAdvantageScore}/100`);
+      }
+    }
+
+    // Add existing root cause analysis
+    const existingCauses = await this.identifyRootCauses(
+      workspaceId,
+      brandName,
+      cluster,
+      aiVisibility,
+      competitors,
+      evidence
+    );
+    causes.push(existingCauses);
+
+    return causes.join(' ');
+  }
+
+  /**
+   * Enhanced action steps generation with fix difficulty and trust failures
+   */
+  private async generateActionStepsEnhanced(
+    workspaceId: string,
+    brandName: string,
+    cluster: PromptCluster,
+    whyYouAreLosing: string,
+    industryContext: IndustryContext,
+    fixDifficulty: any,
+    trustFailures: any[]
+  ): Promise<string[]> {
+    const steps: string[] = [];
+
+    // Use cluster content gaps if available
+    if (cluster.contentGaps.length > 0) {
+      steps.push(...cluster.contentGaps.slice(0, 3));
+    }
+
+    // Add steps from fix difficulty primary constraints
+    if (fixDifficulty.primaryConstraints.length > 0) {
+      steps.push(...fixDifficulty.primaryConstraints.slice(0, 2));
+    }
+
+    // Add steps from trust failures
+    for (const failure of trustFailures.slice(0, 2)) {
+      if (failure.recommendedFixes.length > 0) {
+        steps.push(...failure.recommendedFixes.slice(0, 1));
+      }
+    }
+
+    // Add existing action steps
+    const existingSteps = await this.generateActionSteps(
+      workspaceId,
+      brandName,
+      cluster,
+      whyYouAreLosing,
+      industryContext
+    );
+    steps.push(...existingSteps);
+
+    // Remove duplicates and limit
+    return [...new Set(steps)].slice(0, 7);
+  }
+
+  /**
+   * Enhanced confidence calculation
+   */
+  private calculateConfidenceEnhanced(
+    evidence: VisibilityOpportunity['evidence'],
+    competitors: VisibilityOpportunity['competitors'],
+    aiVisibility: VisibilityOpportunity['aiVisibility'],
+    commercialValue: any,
+    crossEnginePatterns: any
+  ): number {
+    let confidence = this.calculateConfidence(evidence, competitors, aiVisibility);
+
+    // Boost confidence with commercial value data
+    if (commercialValue.confidence > 0.7) {
+      confidence += 0.1;
+    }
+
+    // Boost confidence with cross-engine pattern data
+    const avgEngineConfidence = (
+      crossEnginePatterns.engineConfidence.chatgpt +
+      crossEnginePatterns.engineConfidence.claude +
+      crossEnginePatterns.engineConfidence.gemini +
+      crossEnginePatterns.engineConfidence.perplexity
+    ) / 4;
+    if (avgEngineConfidence > 0.7) {
+      confidence += 0.1;
+    }
+
+    return Math.max(0, Math.min(1, confidence));
+  }
+
+  /**
+   * Enhanced warnings generation
+   */
+  private generateWarningsEnhanced(
+    evidence: VisibilityOpportunity['evidence'],
+    competitors: VisibilityOpportunity['competitors'],
+    aiVisibility: VisibilityOpportunity['aiVisibility'],
+    confidence: number,
+    trustFailures: any[],
+    crossEnginePatterns: any
+  ): string[] {
+    const warnings = this.generateWarnings(evidence, competitors, aiVisibility, confidence);
+
+    // Add warnings from trust failures
+    if (trustFailures.length > 5) {
+      warnings.push(`Multiple trust failures detected (${trustFailures.length}). Address these to improve visibility.`);
+    }
+
+    // Add warnings from cross-engine patterns
+    if (crossEnginePatterns.consistencyPattern.consistencyScore < 40) {
+      warnings.push(`Low cross-engine consistency (${crossEnginePatterns.consistencyPattern.consistencyScore}%). Visibility varies significantly across engines.`);
+    }
+
+    return warnings;
   }
 
   /**
