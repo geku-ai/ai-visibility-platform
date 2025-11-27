@@ -315,10 +315,11 @@ Return JSON array:
       } as VisibilityOpportunity);
     }
 
-    // Sort by opportunity (commercial value * opportunity gap)
+    // Sort by opportunity (value * opportunity impact)
     return opportunities.sort((a, b) => {
-      const scoreA = a.commercialValue * a.opportunityGap;
-      const scoreB = b.commercialValue * b.opportunityGap;
+      // Use value (0-100) and opportunityImpact (0-100) from VisibilityOpportunity
+      const scoreA = a.value * a.opportunityImpact;
+      const scoreB = b.value * b.opportunityImpact;
       return scoreB - scoreA;
     });
   }
