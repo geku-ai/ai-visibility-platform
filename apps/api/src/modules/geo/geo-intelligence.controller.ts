@@ -410,6 +410,8 @@ export class GEOIntelligenceController {
         recommendations: paginated,
         metadata: {
           generatedAt: new Date().toISOString(),
+          serviceVersion: '2.0.0',
+          industry: 'Unknown',
           total: filtered.length,
           highPriorityCount,
           confidence: this.calculateAverageConfidence(paginated),
