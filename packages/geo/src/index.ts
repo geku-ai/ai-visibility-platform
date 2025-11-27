@@ -94,6 +94,14 @@ export * from './types/diagnostic.types';
 // Diagnostic intelligence services
 export { DiagnosticIntelligenceService } from './diagnostics/diagnostic-intelligence.service';
 
+// New Intelligence Engines
+export { CommercialValueImpactService } from './value/commercial-value.service';
+export { PromptClusterService } from './prompts/prompt-cluster.service';
+export { EnginePatternService } from './patterns/engine-pattern.service';
+export { CompetitorAdvantageService } from './competitors/competitor-advantage.service';
+export { TrustFailureService } from './trust/trust-failure.service';
+export { FixDifficultyService } from './difficulty/fix-difficulty.service';
+
 // Industry weights config
 export * from './config/industry-weights.config';
 

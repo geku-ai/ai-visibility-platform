@@ -152,6 +152,285 @@ export interface DiagnosticBreakdown {
   competitiveThreats: CompetitiveThreat[];
 }
 
+// ============================================================================
+// NEW INTELLIGENCE ENGINE TYPES
+// ============================================================================
+
+/**
+ * Commercial Value Impact Analysis
+ */
+export interface CommercialValueImpact {
+  /** Estimated AI visibility value index (0-100) */
+  visibilityValueIndex: number;
+  /** Projected incremental visibility if fixed (percentage points) */
+  projectedVisibilityGain: number;
+  /** Projected incremental AI recommendations (count) */
+  projectedRecommendationsGain: number;
+  /** Relative revenue/commercial upside (scaled 0-100) */
+  commercialUpside: number;
+  /** Competitor cannibalization risk (0-100) */
+  cannibalizationRisk: number;
+  /** Engine-by-engine value projection */
+  engineValueProjection: {
+    chatgpt: number;
+    claude: number;
+    gemini: number;
+    perplexity: number;
+  };
+  /** High-value multiplier when cross-engine consensus exists */
+  crossEngineConsensusMultiplier: number;
+  /** Final Commercial Opportunity Score (0-100) */
+  commercialOpportunityScore: number;
+  /** Evidence backing the analysis */
+  evidence: string[];
+  /** Confidence in the analysis (0-1) */
+  confidence: number;
+}
+
+/**
+ * LLM Reasoning-Based Prompt Cluster
+ */
+export interface PromptCluster {
+  /** Cluster type */
+  type: 'BEST' | 'ALTERNATIVES' | 'COMPARISONS' | 'CATEGORY' | 'LOCAL' | 'HOWTO' | 'TRUST' | 'EXPERT';
+  /** Cluster title */
+  title: string;
+  /** Prompts in this cluster */
+  prompts: string[];
+  /** Value score (0-100) */
+  value: number;
+  /** Difficulty score (0-100) */
+  difficulty: number;
+  /** Cluster visibility average */
+  clusterVisibilityAverage: number;
+  /** Competitor dominance map */
+  competitorDominance: Array<{
+    competitor: string;
+    dominanceScore: number;
+    evidence: string[];
+  }>;
+  /** Missing trust/signal requirements */
+  missingTrustSignals: string[];
+  /** Required schema types */
+  requiredSchemaTypes: string[];
+  /** Content gaps needed to rank */
+  contentGaps: string[];
+  /** Citations required */
+  citationsRequired: number;
+  /** Root cause per cluster */
+  rootCause: string;
+  /** Expected GEO score lift */
+  expectedGEOScoreLift: {
+    min: number;
+    max: number;
+  };
+  /** Evidence for cluster assignment */
+  evidence: string[];
+  /** Confidence (0-1) */
+  confidence: number;
+}
+
+/**
+ * Cross-Engine Pattern Recognition
+ */
+export interface CrossEnginePattern {
+  /** Which engines recognize the brand */
+  enginesRecognizing: Array<{
+    engine: string;
+    recognitionScore: number;
+    reasoning: string;
+    evidence: string[];
+  }>;
+  /** Which engines suppress the brand */
+  enginesSuppressing: Array<{
+    engine: string;
+    suppressionScore: number;
+    reasoning: string;
+    evidence: string[];
+  }>;
+  /** Consistency vs inconsistency pattern */
+  consistencyPattern: {
+    consistencyScore: number; // 0-100
+    consistentEngines: string[];
+    inconsistentEngines: string[];
+    explanation: string;
+  };
+  /** Competitor favorability patterns */
+  competitorFavorability: Array<{
+    competitor: string;
+    engines: string[];
+    favorabilityScore: number;
+    evidence: string[];
+  }>;
+  /** Latent intent clustering differences */
+  intentClusteringDifferences: Array<{
+    intent: string;
+    engineDifferences: {
+      engine: string;
+      interpretation: string;
+      evidence: string[];
+    }[];
+  }>;
+  /** Cross-engine ranking stability score */
+  rankingStabilityScore: number; // 0-100
+  /** Conflicting reasoning signals */
+  conflictingSignals: Array<{
+    engines: string[];
+    conflict: string;
+    evidence: string[];
+  }>;
+  /** Missing signals per engine */
+  missingSignalsPerEngine: Array<{
+    engine: string;
+    missingSignals: string[];
+    impact: 'high' | 'medium' | 'low';
+  }>;
+  /** Raw evidence snippets */
+  evidence: string[];
+  /** Confidence per engine */
+  engineConfidence: {
+    chatgpt: number;
+    claude: number;
+    gemini: number;
+    perplexity: number;
+  };
+  /** Pattern-level explanations */
+  patternExplanation: string;
+}
+
+/**
+ * Competitor Advantage & Weakness Analysis
+ */
+export interface CompetitorAdvantageAnalysis {
+  competitor: string;
+  /** Factors giving them advantage */
+  advantageFactors: Array<{
+    factor: string;
+    impact: 'high' | 'medium' | 'low';
+    evidence: string[];
+  }>;
+  /** Factors showing weakness */
+  weaknessFactors: Array<{
+    factor: string;
+    impact: 'high' | 'medium' | 'low';
+    evidence: string[];
+  }>;
+  /** Structural advantage score (0-100) */
+  structuralAdvantageScore: number;
+  /** Structural weakness score (0-100) */
+  structuralWeaknessScore: number;
+  /** Evidence items */
+  evidence: Array<{
+    type: 'citation' | 'schema' | 'content' | 'authority' | 'trust' | 'entity';
+    description: string;
+    source: string;
+    confidence: number;
+  }>;
+  /** Engine-specific competitor strength */
+  engineStrength: {
+    chatgpt: number;
+    claude: number;
+    gemini: number;
+    perplexity: number;
+  };
+  /** Historical vs real-time signal interpretation */
+  signalInterpretation: {
+    historical: {
+      strength: number;
+      evidence: string[];
+    };
+    realTime: {
+      strength: number;
+      evidence: string[];
+    };
+    trend: 'improving' | 'declining' | 'stable';
+  };
+  /** What advantage your business can take (short vs long term) */
+  yourAdvantageOpportunity: {
+    shortTerm: string[];
+    longTerm: string[];
+    difficulty: number; // 0-100
+  };
+}
+
+/**
+ * Trust Failure Detection
+ */
+export interface TrustFailure {
+  /** Failure category */
+  category: 'data_incompleteness' | 'experience_deficiency' | 'missing_authority' | 'missing_trust_signals' | 
+            'inconsistent_entity_data' | 'low_citation_density' | 'low_quality_reviews' | 'schema_mismatch' | 
+            'brand_instability' | 'conflicting_content' | 'thin_content_coverage' | 'low_semantic_relevance' | 
+            'high_competitor_dominance';
+  /** Severity (0-100) */
+  severity: number;
+  /** Confidence (0-1) */
+  confidence: number;
+  /** Evidence */
+  evidence: string[];
+  /** Engine-specific notes */
+  engineNotes: Array<{
+    engine: string;
+    note: string;
+    impact: 'high' | 'medium' | 'low';
+  }>;
+  /** Description of the failure */
+  description: string;
+  /** Recommended fixes */
+  recommendedFixes: string[];
+}
+
+/**
+ * Fix Difficulty Analysis
+ */
+export interface FixDifficultyAnalysis {
+  /** Overall difficulty score (0-100) */
+  difficultyScore: number;
+  /** Difficulty breakdown by dimension */
+  difficultyBreakdown: {
+    content: {
+      score: number; // 0-100
+      factors: string[];
+      timeEstimate: string;
+    };
+    schema: {
+      score: number;
+      factors: string[];
+      timeEstimate: string;
+    };
+    citation: {
+      score: number;
+      factors: string[];
+      timeEstimate: string;
+    };
+    trust: {
+      score: number;
+      factors: string[];
+      timeEstimate: string;
+    };
+    competitive: {
+      score: number;
+      factors: string[];
+      timeEstimate: string;
+    };
+    technical: {
+      score: number;
+      factors: string[];
+      timeEstimate: string;
+    };
+  };
+  /** Primary constraints */
+  primaryConstraints: string[];
+  /** Secondary constraints */
+  secondaryConstraints: string[];
+  /** Overall time estimate */
+  timeEstimate: string;
+  /** Confidence (0-1) */
+  confidence: number;
+  /** Evidence */
+  evidence: string[];
+}
+
 /**
  * Enhanced PremiumResponse with diagnostic intelligence
  * Note: EvidenceItem is defined in premium-response.types.ts to avoid circular dependencies
