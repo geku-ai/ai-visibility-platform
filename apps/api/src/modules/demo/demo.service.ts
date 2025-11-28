@@ -2224,6 +2224,14 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
 
       const engineKeys: Array<'chatgpt' | 'claude' | 'gemini' | 'perplexity'> = ['chatgpt', 'claude', 'gemini', 'perplexity'];
       
+      // Map frontend engine keys to Prisma enum values
+      const engineKeyMap: Record<string, string> = {
+        'chatgpt': 'OPENAI',
+        'claude': 'ANTHROPIC',
+        'gemini': 'GEMINI',
+        'perplexity': 'PERPLEXITY',
+      };
+      
       for (const engineKey of engineKeys) {
         // Check if brand is visible on this engine
         const mentions = await this.prisma.$queryRaw<{ count: number; snippet: string; promptText: string }>(
@@ -2241,7 +2249,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
             AND e."key" = $3
             AND pr."status" = 'SUCCESS'
           LIMIT 1`,
-          [workspaceId, brand, engineKey.toUpperCase()]
+          [workspaceId, brand, engineKeyMap[engineKey]]
         );
 
         const row = (mentions as any[])[0];
