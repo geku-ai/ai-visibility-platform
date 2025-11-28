@@ -15,7 +15,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 
 @ApiTags('GEO Maturity')
 @ApiBearerAuth()
-@Controller('v1/geo')
+@Controller('geo')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class MaturityController {
   constructor(

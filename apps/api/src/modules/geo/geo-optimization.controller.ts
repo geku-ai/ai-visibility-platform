@@ -16,7 +16,7 @@ import { GetWorkspaceId } from '../../decorators/workspace-id.decorator';
 import { GEODataService } from './geo-data.service';
 
 @ApiTags('GEO Optimization')
-@Controller('v1/geo')
+@Controller('geo')
 @UseGuards(WorkspaceAccessGuard)
 export class GEOOptimizationController {
   constructor(

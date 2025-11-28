@@ -13,7 +13,7 @@ import { WorkspaceContextService } from '../../middleware/workspace-context';
 import { ConfigService } from '@nestjs/config';
 import { v4 as uuidv4 } from 'uuid';
 
-@Controller('v1/events')
+@Controller('events')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class EventsController {
   private workspaceContext?: WorkspaceContextService;

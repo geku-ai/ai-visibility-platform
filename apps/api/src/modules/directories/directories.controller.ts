@@ -6,7 +6,7 @@ import { WorkspaceAccessGuard } from '../../guards/workspace-access.guard';
 
 @ApiTags('Directory Automation')
 @ApiBearerAuth()
-@Controller('v1/directories')
+@Controller('directories')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class DirectoryController {
   constructor(private directoryService: DirectoryAutomationService) {}

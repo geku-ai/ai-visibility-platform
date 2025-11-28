@@ -12,7 +12,7 @@ import { DirectoryPresenceAnalyzerService, DirectoryPresenceReport } from '@ai-v
 
 @ApiTags('Directory Presence')
 @ApiBearerAuth()
-@Controller('v1/directory')
+@Controller('directory')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class DirectoryPresenceController {
   constructor(private presenceAnalyzer: DirectoryPresenceAnalyzerService) {}

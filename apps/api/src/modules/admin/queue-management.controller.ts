@@ -51,7 +51,7 @@ class StubQueueMonitoringService {
 }
 
 @ApiTags('Queue Management')
-@Controller('v1/admin/queues')
+@Controller('admin/queues')
 export class QueueManagementController {
   private enhancedWorker = new StubEnhancedWorker();
   private enhancedQueue = new StubEnhancedQueue();

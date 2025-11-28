@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { PreSignupService, EnhancedCopilotService, DirectorySyncService } from '@ai-visibility/automation';
 
-@Controller('v1/automation')
+@Controller('automation')
 export class AutomationController {
   constructor(
     private preSignupService: PreSignupService,

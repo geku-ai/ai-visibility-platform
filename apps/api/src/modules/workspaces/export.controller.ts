@@ -16,7 +16,7 @@ export interface DeletionRequest {
 
 @ApiTags('Workspace Export & GDPR')
 @ApiBearerAuth()
-@Controller('v1/workspaces/:workspaceId')
+@Controller('workspaces/:workspaceId')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class WorkspaceExportController {
   constructor(

@@ -22,7 +22,7 @@ export interface AcceptInvitationRequest {
 
 @ApiTags('Workspace Members')
 @ApiBearerAuth()
-@Controller('v1/workspaces/:workspaceId/members')
+@Controller('workspaces/:workspaceId/members')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class WorkspaceMembersController {
   constructor(

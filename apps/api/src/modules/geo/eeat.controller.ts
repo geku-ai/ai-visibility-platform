@@ -12,7 +12,7 @@ import { EEATCalculatorService, EEATScore } from '@ai-visibility/geo';
 
 @ApiTags('GEO E-E-A-T')
 @ApiBearerAuth()
-@Controller('v1/geo')
+@Controller('geo')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class EEATController {
   constructor(

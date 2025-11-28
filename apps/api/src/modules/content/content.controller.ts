@@ -6,7 +6,7 @@ import { WorkspaceAccessGuard } from '../../guards/workspace-access.guard';
 
 @ApiTags('Content Generation')
 @ApiBearerAuth()
-@Controller('v1/content')
+@Controller('content')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class ContentController {
   constructor(private contentGenerator: ContentGeneratorService) {}

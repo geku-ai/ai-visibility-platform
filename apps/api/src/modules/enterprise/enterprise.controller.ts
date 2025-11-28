@@ -1,7 +1,7 @@
 import { Controller, Get, Post, Put, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ObservabilityService, WhiteLabelService, ApiMarketplaceService } from '@ai-visibility/shared';
 
-@Controller('v1/enterprise')
+@Controller('enterprise')
 export class EnterpriseController {
   constructor(
     private observabilityService: ObservabilityService,

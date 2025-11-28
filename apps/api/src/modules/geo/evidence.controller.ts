@@ -12,7 +12,7 @@ import { EvidenceGraphBuilderService, EntityEvidenceGraph, FactConsensusScore } 
 
 @ApiTags('GEO Evidence')
 @ApiBearerAuth()
-@Controller('v1/geo/evidence')
+@Controller('geo/evidence')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class EvidenceController {
   constructor(private evidenceBuilder: EvidenceGraphBuilderService) {}

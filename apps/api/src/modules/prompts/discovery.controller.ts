@@ -20,7 +20,7 @@ export interface ClusterScanRequest {
 
 @ApiTags('Prompt Discovery')
 @ApiBearerAuth()
-@Controller('v1/prompts')
+@Controller('prompts')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class DiscoveryController {
   constructor(

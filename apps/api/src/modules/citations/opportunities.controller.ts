@@ -32,7 +32,7 @@ export interface TrackOutreachRequest {
 
 @ApiTags('Citation Opportunities')
 @ApiBearerAuth()
-@Controller('v1/citations')
+@Controller('citations')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class OpportunitiesController {
   constructor(

@@ -19,7 +19,7 @@ import { GEOMaturityScore } from '@ai-visibility/geo';
 
 @ApiTags('GEO Dashboard')
 @ApiBearerAuth()
-@Controller('v1/geo/dashboard')
+@Controller('geo/dashboard')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class DashboardController {
   constructor(

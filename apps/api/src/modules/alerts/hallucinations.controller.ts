@@ -42,7 +42,7 @@ export interface CorrectionSubmissionRequest {
 
 @ApiTags('Hallucination Alerts')
 @ApiBearerAuth()
-@Controller('v1/alerts')
+@Controller('alerts')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class HallucinationsController {
   constructor(

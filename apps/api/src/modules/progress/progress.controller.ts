@@ -9,7 +9,7 @@ import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { WorkspaceAccessGuard } from '../../guards/workspace-access.guard';
 import { WorkspaceContextService } from '../../middleware/workspace-context';
 
-@Controller('v1/progress')
+@Controller('progress')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class ProgressController {
   constructor(

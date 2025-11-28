@@ -17,7 +17,7 @@ export interface LLMTestDto {
 
 @ApiTags('Settings')
 @ApiBearerAuth()
-@Controller('v1/settings')
+@Controller('settings')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class SettingsController {
   constructor(
