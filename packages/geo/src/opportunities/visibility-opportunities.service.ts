@@ -539,8 +539,17 @@ export class VisibilityOpportunitiesService {
       perplexity: 0.20,
     };
 
+    // Map frontend engine names to Prisma enum values
+    const engineKeyMap: Record<string, string> = {
+      'CHATGPT': 'OPENAI',
+      'CLAUDE': 'ANTHROPIC',
+      'GEMINI': 'GEMINI',
+      'PERPLEXITY': 'PERPLEXITY',
+    };
+
     for (const engine of engines) {
       const engineKey = engine.toLowerCase() as keyof typeof visibility;
+      const prismaEngineKey = engineKeyMap[engine];
       
       // Query database for mentions across these prompts
       const result = await this.dbPool.query<{
@@ -560,7 +569,7 @@ export class VisibilityOpportunitiesService {
           AND e."key" = $3
           AND pr."status" = 'SUCCESS'
           AND p."text" = ANY($4::text[])`,
-        [workspaceId, brandName, engine, prompts]
+        [workspaceId, brandName, prismaEngineKey, prompts]
       );
 
       const row = result.rows[0];
@@ -629,6 +638,14 @@ export class VisibilityOpportunitiesService {
       snippets: string[];
     }>();
 
+    // Map Prisma enum values to frontend engine keys
+    const prismaToFrontendMap: Record<string, 'chatgpt' | 'claude' | 'gemini' | 'perplexity'> = {
+      'OPENAI': 'chatgpt',
+      'ANTHROPIC': 'claude',
+      'GEMINI': 'gemini',
+      'PERPLEXITY': 'perplexity',
+    };
+
     for (const row of result.rows) {
       const brand = row.brand;
       if (!competitorMap.has(brand)) {
@@ -642,7 +659,8 @@ export class VisibilityOpportunitiesService {
       }
 
       const comp = competitorMap.get(brand)!;
-      const engineKey = row.engine.toLowerCase() as 'chatgpt' | 'claude' | 'gemini' | 'perplexity';
+      // Map Prisma enum (OPENAI, ANTHROPIC, etc.) to frontend key (chatgpt, claude, etc.)
+      const engineKey = prismaToFrontendMap[row.engine] || 'chatgpt';
       
       // Track best position per engine
       if (comp.engines[engineKey] === 0 || (row.position > 0 && row.position < comp.engines[engineKey])) {
@@ -710,9 +728,18 @@ export class VisibilityOpportunitiesService {
     };
 
     const engines = ['CHATGPT', 'CLAUDE', 'GEMINI', 'PERPLEXITY'];
+    
+    // Map frontend engine names to Prisma enum values
+    const engineKeyMap: Record<string, string> = {
+      'CHATGPT': 'OPENAI',
+      'CLAUDE': 'ANTHROPIC',
+      'GEMINI': 'GEMINI',
+      'PERPLEXITY': 'PERPLEXITY',
+    };
 
     for (const engine of engines) {
       const engineKey = engine.toLowerCase() as keyof typeof evidence;
+      const prismaEngineKey = engineKeyMap[engine];
 
       const result = await this.dbPool.query<{
         snippet: string;
@@ -732,7 +759,7 @@ export class VisibilityOpportunitiesService {
           AND p."text" = ANY($3::text[])
         ORDER BY m."position" ASC
         LIMIT 10`,
-        [workspaceId, engine, prompts]
+        [workspaceId, prismaEngineKey, prompts]
       );
 
       evidence[engineKey] = result.rows.map(r => r.snippet || r.answerText.substring(0, 200));
