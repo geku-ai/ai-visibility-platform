@@ -2118,8 +2118,16 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
   }
 
   /**
-   * Instant Summary V2 - Uses GEO Intelligence Orchestrator
-   * Returns simplified, high-signal summary for free funnel
+   * Instant Summary V2 - Lightweight summary for public/free funnel
+   * 
+   * Uses a simplified 5-step pipeline (NOT the full 15-step orchestrator):
+   * 1. Industry Detection
+   * 2. Business Summary
+   * 3. Prompt Generation (limited set)
+   * 4. SOV Analysis (brand only)
+   * 5. GEO Score Computation
+   * 
+   * Designed for speed and reliability with graceful degradation.
    */
   async getInstantSummaryV2(domain: string): Promise<{
     domain: string;
@@ -2158,8 +2166,11 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       generatedAt: string;
       serviceVersion: string;
       confidence: number;
+      warnings?: string[];
     };
   }> {
+    const startTime = Date.now();
+    const warnings: string[] = [];
     const normalized = this.normalizeDomain(domain);
     const brand = this.deriveBrandFromHost(normalized.host);
     const workspaceId = this.generateWorkspaceId(normalized.host);
@@ -2167,58 +2178,137 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
     await this.ensureWorkspace(workspaceId, brand);
 
     try {
-      // Import orchestrator dynamically to avoid circular dependencies
-      const { GEOIntelligenceOrchestrator } = await import('@ai-visibility/geo');
-      
-      // For now, use a simplified approach with individual services
-      // In production, inject orchestrator via DI
-      
-      // Step 1: Industry Detection
-      const industryClassification = await this.industryDetector.detectIndustry(
-        workspaceId,
-        normalized.href
-      );
-
-      // Step 2: Business Summary
-      const businessSummary = await this.premiumSummary.generatePremiumSummary(
-        workspaceId,
-        normalized.href,
-        brand
-      );
-
-      // Step 3: Generate small set of high-signal prompts
-      const prompts = await this.evidenceBackedPrompts.generateEvidenceBackedPrompts(
-        workspaceId,
-        {
-          brandName: brand,
-          industry: industryClassification.primaryIndustry,
-          category: industryClassification.primaryIndustry.split('/')[0]?.trim() || industryClassification.primaryIndustry,
-          vertical: industryClassification.secondaryIndustries[0] || industryClassification.primaryIndustry,
-          services: [],
-          marketType: 'B2C',
-          serviceType: 'Service',
+      // Step 1: Industry Detection (with fallback)
+      let industryClassification: any;
+      try {
+        industryClassification = await this.industryDetector.detectIndustry(
+          workspaceId,
+          normalized.href
+        );
+        // Validate industry result
+        if (!industryClassification?.primaryIndustry) {
+          throw new Error('Industry detection returned invalid result');
         }
-      );
+        if (industryClassification.confidence < 0 || industryClassification.confidence > 1) {
+          warnings.push(`Invalid industry confidence: ${industryClassification.confidence}, clamping to 0-1`);
+          industryClassification.confidence = Math.max(0, Math.min(1, industryClassification.confidence));
+        }
+      } catch (error) {
+        this.logger.warn(`Industry detection failed: ${error instanceof Error ? error.message : String(error)}`);
+        industryClassification = {
+          primaryIndustry: 'Unknown',
+          secondaryIndustries: [],
+          confidence: 0.3,
+          evidence: {},
+        };
+        warnings.push('Industry detection failed, using defaults');
+      }
 
-      // Step 4: Run SOV for those prompts
-      const sovData = await this.evidenceBackedSOV.calculateEvidenceBackedSOV(
-        workspaceId,
-        [brand]
-      );
+      // Step 2: Business Summary (with fallback)
+      let businessSummary: any;
+      try {
+        businessSummary = await this.premiumSummary.generatePremiumSummary(
+          workspaceId,
+          normalized.href,
+          brand
+        );
+        // Validate business summary
+        if (!businessSummary) {
+          businessSummary = { summary: 'Business information unavailable', confidence: 0.3 };
+          warnings.push('Business summary returned null, using defaults');
+        }
+      } catch (error) {
+        this.logger.warn(`Business summary failed: ${error instanceof Error ? error.message : String(error)}`);
+        businessSummary = { summary: 'Business information unavailable', confidence: 0.3 };
+        warnings.push('Business summary failed, using defaults');
+      }
 
-      // Step 5: Compute simplified GEO Score
-      const geoScoreResult = await this.premiumGEOScore.calculatePremiumGEOScore(
-        workspaceId,
-        normalized.href,
-        brand,
-        [],
-        industryClassification.primaryIndustry
-      );
+      // Step 3: Generate limited prompts (max 10 for speed)
+      let prompts: any[] = [];
+      try {
+        prompts = await this.evidenceBackedPrompts.generateEvidenceBackedPrompts(
+          workspaceId,
+          {
+            brandName: brand,
+            industry: industryClassification.primaryIndustry,
+            category: industryClassification.primaryIndustry.split('/')[0]?.trim() || industryClassification.primaryIndustry,
+            vertical: industryClassification.secondaryIndustries[0] || industryClassification.primaryIndustry,
+            services: [],
+            marketType: 'B2C',
+            serviceType: 'Service',
+          }
+        );
+        // Limit to 10 prompts for performance
+        prompts = prompts.slice(0, 10);
+        if (prompts.length === 0) {
+          warnings.push('No prompts generated, visibility analysis may be limited');
+        }
+      } catch (error) {
+        this.logger.warn(`Prompt generation failed: ${error instanceof Error ? error.message : String(error)}`);
+        warnings.push('Prompt generation failed, visibility analysis will be limited');
+      }
 
-      // Step 6: Get top 3-5 issues from trust failures
-      const trustFailures = await this.eeatCalculator.calculateEEATScore(workspaceId).then(() => []).catch(() => []);
+      // Step 4: SOV Analysis (brand only, lightweight)
+      let sovData: any[] = [];
+      try {
+        sovData = await this.evidenceBackedSOV.calculateEvidenceBackedSOV(
+          workspaceId,
+          [brand]
+        );
+        if (!Array.isArray(sovData)) {
+          sovData = [];
+          warnings.push('SOV analysis returned invalid format');
+        }
+      } catch (error) {
+        this.logger.warn(`SOV analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+        warnings.push('SOV analysis failed, visibility snapshot may be incomplete');
+      }
 
-      // Build visibility snapshot
+      // Step 5: GEO Score Computation (with fallback)
+      let geoScoreResult: any;
+      try {
+        geoScoreResult = await this.premiumGEOScore.calculatePremiumGEOScore(
+          workspaceId,
+          normalized.href,
+          brand,
+          [],
+          industryClassification.primaryIndustry
+        );
+        // Validate GEO Score
+        if (!geoScoreResult) {
+          throw new Error('GEO Score returned null');
+        }
+        // Sanitize GEO Score total
+        if (typeof geoScoreResult.total !== 'number' || isNaN(geoScoreResult.total)) {
+          warnings.push(`Invalid GEO Score total: ${geoScoreResult.total}, using 0`);
+          geoScoreResult.total = 0;
+        } else {
+          geoScoreResult.total = Math.max(0, Math.min(100, geoScoreResult.total));
+        }
+        // Ensure breakdown exists
+        if (!geoScoreResult.breakdown) {
+          geoScoreResult.breakdown = {
+            aiVisibility: { score: 0 },
+            eeat: { score: 0 },
+            citations: { score: 0 },
+            schemaTechnical: { score: 0 },
+          };
+        }
+      } catch (error) {
+        this.logger.warn(`GEO Score computation failed: ${error instanceof Error ? error.message : String(error)}`);
+        geoScoreResult = {
+          total: 0,
+          breakdown: {
+            aiVisibility: { score: 0 },
+            eeat: { score: 0 },
+            citations: { score: 0 },
+            schemaTechnical: { score: 0 },
+          },
+        };
+        warnings.push('GEO Score computation failed, using defaults');
+      }
+
+      // Build visibility snapshot (with error handling per engine)
       const engines: Array<{
         key: 'chatgpt' | 'claude' | 'gemini' | 'perplexity';
         visible: boolean;
@@ -2238,66 +2328,105 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       };
       
       for (const engineKey of engineKeys) {
-        // Check if brand is visible on this engine
-        const mentions = await this.prisma.$queryRaw<{ count: number; snippet: string; promptText: string }>(
-          `SELECT 
-            COUNT(*) as count,
-            MAX(m."snippet") as snippet,
-            MAX(p."text") as "promptText"
-          FROM "mentions" m
-          JOIN "answers" a ON a.id = m."answerId"
-          JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
-          JOIN "prompts" p ON p.id = pr."promptId"
-          JOIN "engines" e ON e.id = pr."engineId"
-          WHERE pr."workspaceId" = $1
-            AND LOWER(m."brand") = LOWER($2)
-            AND e."key" = $3
-            AND pr."status" = 'SUCCESS'
-          LIMIT 1`,
-          [workspaceId, brand, engineKeyMap[engineKey]]
-        );
+        try {
+          // Check if brand is visible on this engine
+          const mentions = await this.prisma.$queryRaw<{ count: number; snippet: string; promptText: string }>(
+            `SELECT 
+              COUNT(*) as count,
+              MAX(m."snippet") as snippet,
+              MAX(p."text") as "promptText"
+            FROM "mentions" m
+            JOIN "answers" a ON a.id = m."answerId"
+            JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+            JOIN "prompts" p ON p.id = pr."promptId"
+            JOIN "engines" e ON e.id = pr."engineId"
+            WHERE pr."workspaceId" = $1
+              AND LOWER(m."brand") = LOWER($2)
+              AND e."key" = $3
+              AND pr."status" = 'SUCCESS'
+            LIMIT 1`,
+            [workspaceId, brand, engineKeyMap[engineKey]]
+          );
 
-        const row = (mentions as any[])[0];
-        const visible = row && parseInt(row.count) > 0;
+          const row = (mentions as any[])[0];
+          const visible = row && parseInt(String(row.count || 0)) > 0;
 
-        engines.push({
-          key: engineKey,
-          visible,
-          confidence: visible ? 0.8 : 0.3,
-          samplePrompt: row?.promptText,
-          evidenceSnippet: row?.snippet,
-        });
-      }
-
-      // Build top insights
-      const topInsights: string[] = [];
-      
-      if (geoScoreResult.total < 50) {
-        topInsights.push(`GEO Score is ${geoScoreResult.total}/100 - significant improvement opportunity`);
-      }
-
-      if (businessSummary) {
-        const summary = businessSummary as any;
-        if (summary.summary) {
-          topInsights.push(`Business focus: ${summary.summary.substring(0, 100)}...`);
+          engines.push({
+            key: engineKey,
+            visible,
+            confidence: Math.max(0, Math.min(1, visible ? 0.8 : 0.3)),
+            samplePrompt: row?.promptText || undefined,
+            evidenceSnippet: row?.snippet || undefined,
+          });
+        } catch (error) {
+          this.logger.warn(`Engine visibility check failed for ${engineKey}: ${error instanceof Error ? error.message : String(error)}`);
+          engines.push({
+            key: engineKey,
+            visible: false,
+            confidence: 0.2,
+          });
         }
       }
 
+      // Build top insights (3-7 items, always meaningful)
+      const topInsights: string[] = [];
+      
+      // GEO Score insight
+      if (geoScoreResult.total < 50) {
+        topInsights.push(`GEO Score is ${geoScoreResult.total}/100 - significant improvement opportunity`);
+      } else if (geoScoreResult.total < 70) {
+        topInsights.push(`GEO Score is ${geoScoreResult.total}/100 - good foundation with room for optimization`);
+      }
+
+      // Business summary insight
+      if (businessSummary) {
+        const summary = businessSummary as any;
+        if (summary.summary && summary.summary.trim().length > 0) {
+          const truncated = summary.summary.substring(0, 100);
+          topInsights.push(`Business focus: ${truncated}${summary.summary.length > 100 ? '...' : ''}`);
+        }
+      }
+
+      // Engine visibility insight
       const visibleEngines = engines.filter(e => e.visible).length;
-      if (visibleEngines < 2) {
+      if (visibleEngines === 0) {
+        topInsights.push('Not currently visible on any AI engines - immediate optimization needed');
+      } else if (visibleEngines < 2) {
         topInsights.push(`Only visible on ${visibleEngines} AI engine(s) - expand visibility across engines`);
+      } else if (visibleEngines < 4) {
+        topInsights.push(`Visible on ${visibleEngines}/4 AI engines - expand to full coverage`);
       }
 
-      if (geoScoreResult.breakdown?.citations?.score < 50) {
+      // Citation insight
+      const citationsScore = geoScoreResult.breakdown?.citations?.score || 0;
+      if (citationsScore < 50) {
         topInsights.push('Low citation profile - build citations from authoritative sources');
+      } else if (citationsScore < 70) {
+        topInsights.push('Citation profile is developing - continue building authoritative citations');
       }
 
-      if (geoScoreResult.breakdown?.eeat?.score < 60) {
+      // EEAT insight
+      const eeatScore = geoScoreResult.breakdown?.eeat?.score || 0;
+      if (eeatScore < 60) {
         topInsights.push('EEAT score below optimal - improve trust signals');
       }
 
-      // CTA hints
-      const shouldSignUp = geoScoreResult.total < 70 || visibleEngines < 2;
+      // Visibility component insight
+      const visibilityScore = geoScoreResult.breakdown?.aiVisibility?.score || 0;
+      if (visibilityScore < 50) {
+        topInsights.push('AI visibility is low - focus on prompt optimization and content alignment');
+      }
+
+      // Ensure we have at least 3 insights, pad if needed
+      if (topInsights.length < 3) {
+        topInsights.push('Complete analysis available with full GEO Intelligence report');
+        if (topInsights.length < 3) {
+          topInsights.push('Sign up for detailed visibility opportunities and recommendations');
+        }
+      }
+
+      // CTA hints (always provide meaningful reasons)
+      const shouldSignUp = geoScoreResult.total < 70 || visibleEngines < 2 || warnings.length > 0;
       const reasons: string[] = [];
       
       if (geoScoreResult.total < 70) {
@@ -2306,36 +2435,56 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       if (visibleEngines < 2) {
         reasons.push(`Limited visibility across AI engines (${visibleEngines}/4)`);
       }
-      if (topInsights.length > 3) {
+      if (topInsights.length >= 5) {
         reasons.push(`${topInsights.length} key insights identified for improvement`);
       }
+      if (warnings.length > 0) {
+        reasons.push('Complete analysis requires full data collection');
+      }
+      
+      // Always have at least one reason
+      if (reasons.length === 0) {
+        reasons.push('Get detailed recommendations and ongoing monitoring');
+      }
+
+      // Calculate overall confidence (degrade based on warnings)
+      let overallConfidence = industryClassification.confidence * 0.9;
+      if (warnings.length > 2) {
+        overallConfidence *= 0.8; // Degrade if many warnings
+      }
+      overallConfidence = Math.max(0.3, Math.min(1, overallConfidence));
+
+      const duration = Date.now() - startTime;
+      this.logger.log(`[Instant Summary V2] Generated in ${duration}ms with ${warnings.length} warnings`);
 
       return {
         domain: normalized.host,
         industry: {
-          primary: industryClassification.primaryIndustry,
-          confidence: industryClassification.confidence,
+          primary: industryClassification.primaryIndustry || 'Unknown',
+          confidence: Math.max(0, Math.min(1, industryClassification.confidence || 0.3)),
         },
         summary: {
-          whatYouDo: businessSummary ? (businessSummary as any).summary?.substring(0, 200) || 'Business information' : 'Business information',
-          whereYouOperate: industryClassification.primaryIndustry,
-          whoYouServe: 'Customers',
-          whyYouStandOut: businessSummary ? (businessSummary as any).differentiators?.[0] : undefined,
+          whatYouDo: businessSummary 
+            ? ((businessSummary as any).summary?.substring(0, 200) || 'Business information')
+            : 'Business information unavailable',
+          whereYouOperate: industryClassification.primaryIndustry || 'Unknown',
+          whoYouServe: (businessSummary as any)?.targetAudience || 'Customers',
+          whyYouStandOut: (businessSummary as any)?.differentiators?.[0] || undefined,
         },
         geoScore: {
-          overall: geoScoreResult.total,
+          overall: Math.max(0, Math.min(100, geoScoreResult.total)),
           components: {
-            visibility: geoScoreResult.breakdown?.aiVisibility?.score || 0,
-            trust: geoScoreResult.breakdown?.eeat?.score || 0,
-            citations: geoScoreResult.breakdown?.citations?.score || 0,
-            schema: geoScoreResult.breakdown?.schemaTechnical?.score || 0,
+            visibility: Math.max(0, Math.min(100, geoScoreResult.breakdown?.aiVisibility?.score || 0)),
+            trust: Math.max(0, Math.min(100, geoScoreResult.breakdown?.eeat?.score || 0)),
+            citations: Math.max(0, Math.min(100, geoScoreResult.breakdown?.citations?.score || 0)),
+            schema: Math.max(0, Math.min(100, geoScoreResult.breakdown?.schemaTechnical?.score || 0)),
           },
-          explanation: `GEO Score: ${geoScoreResult.total}/100`,
+          explanation: this.generateGEOScoreExplanation(geoScoreResult),
         },
         visibilitySnapshot: {
           engines,
         },
-        topInsights: topInsights.slice(0, 7),
+        topInsights: topInsights.slice(0, 7), // Ensure max 7
         ctaHints: {
           shouldSignUpForCopilot: shouldSignUp,
           reasons,
@@ -2343,13 +2492,90 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         metadata: {
           generatedAt: new Date().toISOString(),
           serviceVersion: '2.0.0',
-          confidence: industryClassification.confidence * 0.9,
+          confidence: overallConfidence,
+          warnings: warnings.length > 0 ? warnings : undefined,
         },
       };
     } catch (error) {
-      this.logger.error(`Instant Summary V2 failed: ${error instanceof Error ? error.message : String(error)}`);
-      throw new BadRequestException(`Failed to generate instant summary: ${error instanceof Error ? error.message : String(error)}`);
+      const duration = Date.now() - startTime;
+      this.logger.error(`[Instant Summary V2] Failed after ${duration}ms: ${error instanceof Error ? error.message : String(error)}`);
+      
+      // Return degraded but usable response instead of throwing
+      return {
+        domain: normalized.host,
+        industry: {
+          primary: 'Unknown',
+          confidence: 0.2,
+        },
+        summary: {
+          whatYouDo: 'Unable to generate business summary',
+          whereYouOperate: 'Unknown',
+          whoYouServe: 'Customers',
+        },
+        geoScore: {
+          overall: 0,
+          components: {
+            visibility: 0,
+            trust: 0,
+            citations: 0,
+            schema: 0,
+          },
+          explanation: 'GEO Score unavailable due to data collection issues',
+        },
+        visibilitySnapshot: {
+          engines: ['chatgpt', 'claude', 'gemini', 'perplexity'].map(key => ({
+            key: key as 'chatgpt' | 'claude' | 'gemini' | 'perplexity',
+            visible: false,
+            confidence: 0.2,
+          })),
+        },
+        topInsights: [
+          'Unable to complete full analysis',
+          'Data collection encountered issues',
+          'Please try again or contact support',
+        ],
+        ctaHints: {
+          shouldSignUpForCopilot: true,
+          reasons: ['Complete analysis requires resolving data collection issues'],
+        },
+        metadata: {
+          generatedAt: new Date().toISOString(),
+          serviceVersion: '2.0.0',
+          confidence: 0.2,
+          warnings: [`Analysis failed: ${error instanceof Error ? error.message : String(error)}`],
+        },
+      };
     }
+  }
+
+  /**
+   * Generate GEO Score explanation for Instant Summary
+   */
+  private generateGEOScoreExplanation(geoScoreResult: any): string {
+    const total = geoScoreResult?.total || 0;
+    const parts: string[] = [`GEO Score: ${total}/100`];
+    
+    if (geoScoreResult?.breakdown) {
+      const breakdown = geoScoreResult.breakdown;
+      const components: string[] = [];
+      
+      if (breakdown.aiVisibility?.score !== undefined) {
+        components.push(`Visibility: ${breakdown.aiVisibility.score}`);
+      }
+      if (breakdown.eeat?.score !== undefined) {
+        components.push(`Trust: ${breakdown.eeat.score}`);
+      }
+      if (breakdown.citations?.score !== undefined) {
+        components.push(`Citations: ${breakdown.citations.score}`);
+      }
+      
+      if (components.length > 0) {
+        parts.push(`Components: ${components.join(', ')}`);
+      }
+    }
+    
+    return parts.join('. ');
+  }
   }
 
   /**
