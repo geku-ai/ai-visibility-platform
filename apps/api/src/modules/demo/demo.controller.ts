@@ -92,5 +92,15 @@ export class DemoController {
     }
     return this.demoService.getInstantSummaryV2(domain);
   }
+
+  @Get('full-intelligence')
+  @ApiOperation({ summary: 'Get full GEO intelligence analysis (public test endpoint, no auth required)' })
+  @ApiOkResponse({ description: 'Returns complete intelligence analysis with all 15 steps including opportunities and recommendations.' })
+  async getFullIntelligence(@Query('domain') domain: string) {
+    if (!domain || typeof domain !== 'string' || domain.trim().length === 0) {
+      throw new BadRequestException('Domain query parameter is required');
+    }
+    return this.demoService.getFullIntelligence(domain);
+  }
 }
 

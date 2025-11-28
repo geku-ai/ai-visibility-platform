@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { LLMConfigService, LLMRouterService } from '@ai-visibility/shared';
@@ -27,14 +27,20 @@ import {
   PremiumGEOScoreService,
   EvidenceCollectorService,
   EEATCalculatorService,
+  GEOIntelligenceOrchestrator,
 } from '@ai-visibility/geo';
 import { IntentClustererService } from '@ai-visibility/prompts';
 import { PrismaService } from '../database/prisma.service';
+import { GEOModule } from '../geo/geo.module';
 import { DemoController } from './demo.controller';
 import { DemoService } from './demo.service';
 
 @Module({
-  imports: [ConfigModule, BullModule.registerQueue({ name: 'runPrompt' })],
+  imports: [
+    ConfigModule, 
+    BullModule.registerQueue({ name: 'runPrompt' }),
+    forwardRef(() => GEOModule), // Import GEO module to access orchestrator
+  ],
   controllers: [DemoController],
   providers: [
     // Core services (order matters - dependencies first)
@@ -80,6 +86,7 @@ import { DemoService } from './demo.service';
     
     // Demo service (depends on all above)
     DemoService,
+    // Note: GEOIntelligenceOrchestrator is provided by GEOModule via forwardRef
   ],
   exports: [DemoService],
 })

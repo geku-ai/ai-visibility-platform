@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Inject, forwardRef, Optional } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
@@ -18,6 +18,7 @@ import {
   PremiumGEOScoreService,
   EvidenceCollectorService,
   EEATCalculatorService,
+  GEOIntelligenceOrchestrator,
   // Types
   PremiumResponse,
   PremiumBusinessSummary,
@@ -148,6 +149,10 @@ export class DemoService {
     private readonly evidenceCollector: EvidenceCollectorService,
     private readonly eeatCalculator: EEATCalculatorService,
     @InjectQueue('runPrompt') private readonly runPromptQueue: Queue,
+    // Inject orchestrator for full intelligence endpoint (optional via forwardRef)
+    @Inject(forwardRef(() => GEOIntelligenceOrchestrator))
+    @Optional()
+    private readonly orchestrator?: GEOIntelligenceOrchestrator,
   ) {}
 
   private readonly defaultEngines = ['PERPLEXITY', 'BRAVE', 'AIO'];
@@ -2344,6 +2349,42 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
     } catch (error) {
       this.logger.error(`Instant Summary V2 failed: ${error instanceof Error ? error.message : String(error)}`);
       throw new BadRequestException(`Failed to generate instant summary: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  /**
+   * Get Full Intelligence (Public Test Endpoint)
+   * Returns the complete GEOIntelligenceResponse for testing without auth
+   */
+  async getFullIntelligence(domain: string): Promise<any> {
+    try {
+      if (!this.orchestrator) {
+        throw new BadRequestException('Orchestrator not available. This endpoint requires GEO module integration.');
+      }
+
+      const normalized = this.normalizeDomain(domain);
+      const brandName = this.deriveBrandFromHost(normalized.host);
+      const workspaceId = this.generateWorkspaceId(normalized.host);
+      
+      // Ensure workspace exists
+      await this.ensureWorkspace(workspaceId, brandName);
+
+      // Call orchestrator with all intelligence steps
+      const intelligence = await this.orchestrator.orchestrateIntelligence(
+        workspaceId,
+        brandName,
+        normalized.href,
+        {
+          includeOpportunities: true,
+          includeRecommendations: true,
+          maxOpportunities: 20,
+        }
+      );
+
+      return intelligence;
+    } catch (error) {
+      this.logger.error(`Full intelligence failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new BadRequestException(`Failed to generate full intelligence: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
