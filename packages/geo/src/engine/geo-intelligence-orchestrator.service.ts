@@ -18,7 +18,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Pool } from 'pg';
 import { LLMRouterService } from '@ai-visibility/shared';
 import { GEOIntelligenceResponse } from '../types/diagnostic.types';
-import { IndustryDetectorService, IndustryContext } from '../industry/industry-detector.service';
+import { IndustryDetectorService, IndustryClassification } from '../industry/industry-detector.service';
 import { PremiumBusinessSummaryService } from '../summary/premium-business-summary.service';
 import { EvidenceBackedPromptGeneratorService } from '../prompts/evidence-backed-prompt-generator.service';
 import { PromptClusterService } from '../prompts/prompt-cluster.service';
@@ -113,7 +113,7 @@ export class GEOIntelligenceOrchestrator {
     this.logger.log(`[Orchestrator] Starting GEO intelligence for workspace ${workspaceId} (${brandName})`);
 
     // Initialize defaults for graceful degradation
-    let industryContext: IndustryContext | null = null;
+    let industryContext: IndustryClassification | null = null;
     let businessSummary: any = null;
     let prompts: any[] = [];
     let promptClusters: any[] = [];
@@ -132,10 +132,10 @@ export class GEOIntelligenceOrchestrator {
     // Step 1: Industry Detection (CRITICAL - other steps depend on this)
     const step1 = await this.executeStep('Industry Detection', async () => {
       const result = await this.industryDetector.detectIndustry(workspaceId, domain);
-      this.validateIndustryContext(result);
+      this.validateIndustryClassification(result);
       return result;
     });
-    industryContext = step1.data || this.getDefaultIndustryContext();
+    industryContext = step1.data || this.getDefaultIndustryClassification();
     if (!step1.success) {
       metrics.warnings.push(`Industry detection failed: ${step1.error}. Using defaults.`);
     }
@@ -463,10 +463,10 @@ export class GEOIntelligenceOrchestrator {
   }
 
   /**
-   * Validate industry context
+   * Validate industry classification
    */
-  private validateIndustryContext(context: IndustryContext | null): void {
-    if (!context) throw new Error('Industry context is null');
+  private validateIndustryClassification(context: IndustryClassification | null): void {
+    if (!context) throw new Error('Industry classification is null');
     if (!context.primaryIndustry || context.primaryIndustry.trim().length === 0) {
       throw new Error('Primary industry is required');
     }
@@ -750,14 +750,22 @@ export class GEOIntelligenceOrchestrator {
   }
 
   /**
-   * Get default industry context
+   * Get default industry classification
    */
-  private getDefaultIndustryContext(): IndustryContext {
+  private getDefaultIndustryClassification(): IndustryClassification {
     return {
       primaryIndustry: 'Unknown',
       secondaryIndustries: [],
       confidence: 0.3,
-      evidence: {},
+      evidence: {
+        schemaSignals: [],
+        contentSignals: [],
+        competitorSignals: [],
+        llmClassification: '',
+        metadataSignals: [],
+      },
+      missingData: [],
+      reasoning: 'Default classification due to detection failure',
     };
   }
 
