@@ -2576,7 +2576,6 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
     
     return parts.join('. ');
   }
-  }
 
   /**
    * Get Full Intelligence (Public Test Endpoint)
