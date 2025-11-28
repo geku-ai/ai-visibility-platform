@@ -34,6 +34,7 @@ import {
   TrustFailureService,
   FixDifficultyService,
   EnhancedRecommendationService,
+  OrchestrationValidatorService,
   // Required dependencies
   IndustryDetectorService,
   DiagnosticIntelligenceService,
@@ -108,6 +109,7 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     EnhancedRecommendationService, // Required by GEOIntelligenceOrchestrator
     VisibilityOpportunitiesService,
     GEOIntelligenceOrchestrator,
+    OrchestrationValidatorService, // Validation and data quality checks
     PrismaService,
   ],
   controllers: [

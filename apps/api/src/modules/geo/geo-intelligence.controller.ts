@@ -30,6 +30,7 @@ import {
   GEOIntelligenceOrchestrator,
   VisibilityOpportunitiesService,
   EnhancedRecommendationService,
+  OrchestrationValidatorService,
 } from '@ai-visibility/geo';
 import { PrismaService } from '../database/prisma.service';
 import {
@@ -55,6 +56,7 @@ export class GEOIntelligenceController {
     private readonly orchestrator: GEOIntelligenceOrchestrator,
     private readonly opportunitiesService: VisibilityOpportunitiesService,
     private readonly recommendationsService: EnhancedRecommendationService,
+    private readonly validator: OrchestrationValidatorService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -118,18 +120,25 @@ export class GEOIntelligenceController {
       const brandName = workspace.brandName || 'Unknown';
       const domain = workspace.domain || '';
 
-      // Check cache
-      const cacheKey = `geo:intelligence:${workspaceId}`;
+      // Check cache (TTL: 5 minutes)
+      // Cache key includes workspaceId and refresh flag to ensure proper isolation
+      const cacheKey = this.generateCacheKey('intelligence', workspaceId, { refresh: query.refresh });
       if (!query.refresh && this.cache.has(cacheKey)) {
         const cached = this.cache.get(cacheKey)!;
         if (cached.expiresAt > Date.now()) {
-          this.logger.log(`Returning cached intelligence for workspace ${workspaceId}`);
+          this.logger.log(`[Cache HIT] Returning cached intelligence for workspace ${workspaceId}`);
           return cached.data;
         }
         this.cache.delete(cacheKey);
+        this.logger.log(`[Cache EXPIRED] Cache entry expired for workspace ${workspaceId}`);
+      } else if (query.refresh) {
+        this.logger.log(`[Cache BYPASS] Refresh requested, bypassing cache for workspace ${workspaceId}`);
+      } else {
+        this.logger.log(`[Cache MISS] No cache entry for workspace ${workspaceId}`);
       }
 
-      // Run orchestrator with error handling
+      // Run orchestrator with error handling and performance tracking
+      const startTime = Date.now();
       const warnings: WarningDto[] = [];
       const errors: ErrorResponseDto[] = [];
 
@@ -147,6 +156,29 @@ export class GEOIntelligenceController {
           }
         );
         
+        // Validate response quality
+        const validation = this.validator.validateIntelligenceResponse(rawIntelligence);
+        if (!validation.valid) {
+          errors.push(...validation.errors.map(e => ({
+            code: 'DATA_UNAVAILABLE' as const,
+            message: `Validation error: ${e}`,
+            details: { field: e },
+          })));
+        }
+        warnings.push(...validation.warnings.map(w => ({
+          source: 'OrchestrationValidator',
+          message: w,
+        })));
+
+        // Data quality check
+        const qualityCheck = this.validator.validateDataQuality(rawIntelligence);
+        if (!qualityCheck.meetsThreshold) {
+          warnings.push(...qualityCheck.issues.map(issue => ({
+            source: 'DataQualityValidator',
+            message: issue,
+          })));
+        }
+        
         // Convert to DTO format (Date to string, ensure metadata has all fields)
         intelligence = {
           ...rawIntelligence,
@@ -156,16 +188,23 @@ export class GEOIntelligenceController {
               ? rawIntelligence.metadata.generatedAt.toISOString()
               : rawIntelligence.metadata.generatedAt,
             industry: rawIntelligence.metadata.industry || rawIntelligence.industry?.primary || 'Unknown',
+            warnings: warnings.length > 0 ? warnings : undefined,
+            errors: errors.length > 0 ? errors : undefined,
           },
         } as GEOIntelligenceResponseDto;
+
+        const duration = Date.now() - startTime;
+        this.logger.log(`[Performance] Intelligence orchestration completed in ${duration}ms`);
       } catch (error) {
-        this.logger.error(`Orchestrator failed: ${error instanceof Error ? error.message : String(error)}`);
+        this.logger.error(`[Error] Orchestrator failed: ${error instanceof Error ? error.message : String(error)}`);
         
         // Try to get partial results
         try {
           // Fallback: try to get at least some data
           intelligence = await this.getPartialIntelligence(workspaceId, brandName, domain, warnings, errors);
         } catch (fallbackError) {
+          const duration = Date.now() - startTime;
+          this.logger.error(`[Error] Fallback also failed after ${duration}ms: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
           return {
             error: {
               code: 'INTERNAL_ERROR',
@@ -173,26 +212,36 @@ export class GEOIntelligenceController {
               details: {
                 workspaceId,
                 originalError: error instanceof Error ? error.message : String(error),
+                fallbackError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError),
               },
             },
           };
         }
       }
 
-      // Add warnings and errors to metadata
+      // Add warnings and errors to metadata if not already present
       if (warnings.length > 0 || errors.length > 0) {
         intelligence.metadata.warnings = warnings;
         intelligence.metadata.errors = errors;
       }
 
-      // Cache result (5 minutes)
-      this.cache.set(cacheKey, {
-        data: intelligence,
-        expiresAt: Date.now() + 5 * 60 * 1000,
-      });
+      // Cache result (TTL: 5 minutes = 300,000ms)
+      // Only cache successful responses (no errors)
+      if (errors.length === 0) {
+        this.cache.set(cacheKey, {
+          data: intelligence,
+          expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+        });
+        this.logger.log(`[Cache SET] Cached intelligence for workspace ${workspaceId} (expires in 5 minutes)`);
+      } else {
+        this.logger.warn(`[Cache SKIP] Not caching response with errors for workspace ${workspaceId}`);
+      }
 
-      // Return 206 if partial, 200 if complete
-      const statusCode = errors.length > 0 ? HttpStatus.PARTIAL_CONTENT : HttpStatus.OK;
+      // Return 206 if partial (has errors), 200 if complete
+      // Note: NestJS will use the @HttpCode decorator, but we log the intended status
+      if (errors.length > 0) {
+        this.logger.warn(`[Partial] Returning partial results with ${errors.length} errors for workspace ${workspaceId}`);
+      }
       
       return intelligence;
     } catch (error) {
@@ -516,7 +565,28 @@ export class GEOIntelligenceController {
   private calculateAverageConfidence(items: Array<{ confidence?: number }>): number {
     if (items.length === 0) return 0.5;
     const sum = items.reduce((acc, item) => acc + (item.confidence || 0.5), 0);
-    return sum / items.length;
+    return Math.max(0, Math.min(1, sum / items.length));
+  }
+
+  /**
+   * Generate cache key with parameters
+   * Format: geo:{type}:{workspaceId}:{paramsHash}
+   */
+  private generateCacheKey(
+    type: string,
+    workspaceId: string,
+    params?: Record<string, any>
+  ): string {
+    const baseKey = `geo:${type}:${workspaceId}`;
+    if (!params || Object.keys(params).length === 0) {
+      return baseKey;
+    }
+    // Simple hash of params (for cache key generation)
+    const paramsStr = JSON.stringify(params);
+    const paramsHash = paramsStr.length > 50 
+      ? paramsStr.substring(0, 50).replace(/[^a-zA-Z0-9]/g, '')
+      : paramsStr.replace(/[^a-zA-Z0-9]/g, '');
+    return `${baseKey}:${paramsHash}`;
   }
 }
 

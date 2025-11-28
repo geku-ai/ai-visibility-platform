@@ -108,6 +108,9 @@ export { GEOIntelligenceOrchestrator } from './engine/geo-intelligence-orchestra
 // Enhanced Recommendations
 export { EnhancedRecommendationService } from './recommendations/enhanced-recommendation.service';
 
+// Validation services
+export { OrchestrationValidatorService } from './validation/orchestration-validator.service';
+
 // Industry weights config
 export * from './config/industry-weights.config';
 
