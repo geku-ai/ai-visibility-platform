@@ -17,7 +17,7 @@ import { RecommendationsResponseDto, RecommendationsQueryDto } from '../geo/dto/
 
 @ApiTags('Recommendations')
 @ApiBearerAuth()
-@Controller('v1/recommendations')
+@Controller('recommendations')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class RecommendationsController {
   constructor(

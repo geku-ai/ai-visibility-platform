@@ -46,7 +46,7 @@ import {
 
 @ApiTags('GEO Intelligence')
 @ApiBearerAuth()
-@Controller('v1/geo')
+@Controller('geo')
 @UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
 export class GEOIntelligenceController {
   private readonly logger = new Logger(GEOIntelligenceController.name);
