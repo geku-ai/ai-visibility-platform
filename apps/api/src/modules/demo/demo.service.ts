@@ -1165,11 +1165,13 @@ export class DemoService {
   }
 
   private async ensureWorkspace(workspaceId: string, name: string): Promise<void> {
+    // Create workspace with onboarding defaults
+    // Demo workspaces use 'instant_summary' entry type since they're created from the free funnel
     await this.prisma.$executeRaw(
-      `INSERT INTO "workspaces" ("id", "name", "tier", "createdAt")
-       VALUES ($1, $2, $3, NOW())
+      `INSERT INTO "workspaces" ("id", "name", "tier", "onboardingStatus", "onboardingEntryType", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, NOW())
        ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"`,
-      [workspaceId, name, 'INSIGHTS']
+      [workspaceId, name, 'INSIGHTS', 'not_started', 'instant_summary']
     );
   }
 

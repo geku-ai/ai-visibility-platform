@@ -90,12 +90,27 @@ model User {
 model Workspace {
   id           String @id @default(cuid())
   name         String
-  tier         String @default("FREE") // FREE, INSIGHTS, COPILOT
+  tier         String @default("FREE") // FREE, INSIGHTS, COPILOT, ENTERPRISE
   createdAt    DateTime @default(now())
   deletedAt    DateTime?
   deletedBy    String?
   members      WorkspaceMember[]
   invitations  WorkspaceInvitation[]
+  
+  // Onboarding fields
+  onboardingStatus      String  @default("not_started") // not_started, in_progress, completed
+  onboardingEntryType   String? // instant_summary, self_serve, invited, enterprise
+  
+  // Onboarding data collection
+  primaryDomain         String?
+  brandName             String?
+  businessType          String? // travel, SaaS, ecommerce, local_services, etc.
+  location              Json?   // { city: string, country: string }
+  userRole              String? // owner, marketer, agency, enterprise_admin
+  competitors           String[]
+  businessSize          String? // solo, 1-10, 11-50, 50+
+  goals                 String[] // visibility, trust, design, content, etc.
+  copilotPreferences    Json?   // { weeklyIntelligence: boolean, pageOptimization: boolean, reviewAutomation: boolean }
 
   @@map("workspaces")
 }
