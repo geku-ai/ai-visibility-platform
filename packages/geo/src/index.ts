@@ -131,3 +131,17 @@ export {
   type ValidationRule,
   type ValidationResult
 } from './validation/fact-validator';
+
+// Cost estimation services
+export { CostEstimatorService } from './cost/cost-estimator.service';
+export type {
+  ScenarioKey,
+  ScenarioCostEstimate,
+  ProviderCostBreakdown,
+  CostEstimationOptions,
+  CopilotAutomationParams,
+  ProviderKey,
+  ProviderPricingConfig,
+  StepCostAssumption,
+  CostUnit,
+} from './cost/cost.types';

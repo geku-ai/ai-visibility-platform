@@ -35,6 +35,7 @@ import {
   FixDifficultyService,
   EnhancedRecommendationService,
   OrchestrationValidatorService,
+  CostEstimatorService,
   // Required dependencies
   IndustryDetectorService,
   DiagnosticIntelligenceService,
@@ -110,6 +111,7 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     VisibilityOpportunitiesService,
     GEOIntelligenceOrchestrator,
     OrchestrationValidatorService, // Validation and data quality checks
+    CostEstimatorService, // Cost estimation service
     PrismaService,
   ],
   controllers: [
@@ -132,6 +134,7 @@ import { LLMRouterService, LLMConfigService } from '@ai-visibility/shared';
     DashboardAggregatorService,
     GEOIntelligenceOrchestrator,
     VisibilityOpportunitiesService,
+    CostEstimatorService,
   ],
 })
 export class GEOModule {}

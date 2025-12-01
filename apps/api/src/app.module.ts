@@ -28,6 +28,7 @@ import { GEOModule } from './modules/geo/geo.module';
 import { RecommendationsModule } from './modules/recommendations/recommendations.module';
 import { DirectoryModule } from './modules/directory/directory.module';
 import { DemoModule } from './modules/demo/demo.module';
+import { CostModule } from './modules/cost/cost.module';
 import { HealthController } from './health.controller';
 import { BullModule } from '@nestjs/bullmq';
 import { createRedisClient } from '@ai-visibility/shared';
@@ -100,6 +101,7 @@ import { createRedisClient } from '@ai-visibility/shared';
     RecommendationsModule,
     DirectoryModule,
     DemoModule,
+    CostModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -208,7 +208,16 @@ export class RunPromptWorker {
       const apiKey = process.env[apiKeyEnvVar];
       
       if (!apiKey) {
-        throw new Error(`Missing API key for engine ${engineKey}. Please set ${apiKeyEnvVar} environment variable in the jobs service.`);
+        const errorMsg = `Missing API key for engine ${engineKey}. Please set ${apiKeyEnvVar} environment variable in the jobs service.`;
+        console.error(`[RunPromptWorker] ${errorMsg}`);
+        throw new Error(errorMsg);
+      }
+
+      // Validate API key format (basic check - not empty, has reasonable length)
+      if (apiKey.trim().length < 10) {
+        const errorMsg = `Invalid API key format for engine ${engineKey}. The ${apiKeyEnvVar} appears to be too short or invalid.`;
+        console.error(`[RunPromptWorker] ${errorMsg}`);
+        throw new Error(errorMsg);
       }
 
       const provider = createProvider(engineKey as EngineKey, {
@@ -217,7 +226,35 @@ export class RunPromptWorker {
 
       // Execute prompt
       const startTime = Date.now();
-      const result = await provider.ask(prompt.text);
+      let result;
+      try {
+        result = await provider.ask(prompt.text);
+      } catch (providerError) {
+        const errorMessage = providerError instanceof Error ? providerError.message : String(providerError);
+        
+        // Check if this is an authentication error
+        const isAuthError = providerError instanceof Error && 
+          ((providerError as any).isAuthError || 
+           errorMessage.includes('401') || 
+           errorMessage.includes('authentication') ||
+           errorMessage.includes('Authorization Required'));
+        
+        if (isAuthError) {
+          const authErrorMsg = `Provider ${engineKey} authentication failed. The API key may be invalid, expired, or revoked. Please verify your ${apiKeyEnvVar} environment variable. Original error: ${errorMessage}`;
+          console.error(`[RunPromptWorker] ${authErrorMsg}`);
+          throw new Error(authErrorMsg);
+        }
+        
+        // Re-throw other errors with context
+        const contextualError = new Error(`Provider ${engineKey} failed to execute prompt: ${errorMessage}`);
+        console.error(`[RunPromptWorker] Provider execution failed:`, {
+          engineKey,
+          promptId,
+          error: errorMessage,
+          isAuthError,
+        });
+        throw contextualError;
+      }
       const executionTime = Date.now() - startTime;
 
       // Get brand/domain from demo run if this is a demo job
@@ -328,6 +365,18 @@ export class RunPromptWorker {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
       
+      // Determine error category for better diagnostics
+      const isAuthError = errorMessage.includes('authentication') || 
+                         errorMessage.includes('401') || 
+                         errorMessage.includes('Authorization Required') ||
+                         errorMessage.includes('API key');
+      const isRateLimit = errorMessage.includes('rate limit') || 
+                         errorMessage.includes('429') ||
+                         errorMessage.includes('quota');
+      const isNetworkError = errorMessage.includes('network') || 
+                            errorMessage.includes('timeout') ||
+                            errorMessage.includes('ECONNREFUSED');
+      
       console.error(`[RunPromptWorker] Prompt run failed for ${idempotencyKey}:`, {
         error: errorMessage,
         stack: errorStack,
@@ -335,6 +384,14 @@ export class RunPromptWorker {
         promptId,
         engineKey,
         demoRunId,
+        errorCategory: isAuthError ? 'AUTHENTICATION' : isRateLimit ? 'RATE_LIMIT' : isNetworkError ? 'NETWORK' : 'OTHER',
+        diagnostic: isAuthError 
+          ? `⚠️ API key issue detected for ${engineKey}. Check your ${engineKey === 'AIO' ? 'SERPAPI_KEY' : `${engineKey}_API_KEY`} environment variable.`
+          : isRateLimit
+          ? `⚠️ Rate limit hit for ${engineKey}. Consider adding more API keys or reducing request frequency.`
+          : isNetworkError
+          ? `⚠️ Network issue with ${engineKey}. Check connectivity and provider status.`
+          : `⚠️ Provider ${engineKey} failed. Review error message for details.`,
       });
       
       // Update prompt run with error

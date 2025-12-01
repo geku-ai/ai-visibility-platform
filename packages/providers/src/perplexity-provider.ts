@@ -67,7 +67,21 @@ export class PerplexityProvider extends BaseProvider {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Perplexity API error: ${response.status} ${errorText}`);
+        let errorMessage = `Perplexity API error: ${response.status} ${errorText}`;
+        
+        // Provide clear error messages for common issues
+        if (response.status === 401) {
+          errorMessage = `Perplexity API authentication failed (401). The API key is invalid, expired, or missing. Please check your PERPLEXITY_API_KEY environment variable. Error: ${errorText}`;
+        } else if (response.status === 429) {
+          errorMessage = `Perplexity API rate limit exceeded (429). Please wait before retrying. Error: ${errorText}`;
+        } else if (response.status === 403) {
+          errorMessage = `Perplexity API access forbidden (403). Your API key may not have permission for this operation. Error: ${errorText}`;
+        }
+        
+        const error = new Error(errorMessage);
+        (error as any).statusCode = response.status;
+        (error as any).isAuthError = response.status === 401;
+        throw error;
       }
 
       const data = await response.json() as any;
@@ -106,8 +120,16 @@ export class PerplexityProvider extends BaseProvider {
         }
       );
     } catch (error) {
-      console.error('Perplexity API error:', error);
-      throw new Error(`Perplexity API call failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // If error already has statusCode, it's a structured error from above - re-throw as-is
+      if (error instanceof Error && (error as any).statusCode) {
+        console.error(`[Perplexity] API error (${(error as any).statusCode}):`, error.message);
+        throw error;
+      }
+      
+      // Otherwise, wrap in a generic error
+      console.error('[Perplexity] API call failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Perplexity API call failed: ${errorMessage}`);
     }
   }
 

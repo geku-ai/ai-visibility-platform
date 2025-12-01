@@ -55,7 +55,26 @@ export class LLMRouterService {
         return response;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.warn(`[LLM Router] ❌ Provider ${providerConfig.provider} failed: ${errorMessage}`);
+        
+        // Categorize error for better diagnostics
+        const isAuthError = errorMessage.includes('401') || 
+                           errorMessage.includes('authentication') ||
+                           errorMessage.includes('Authorization Required') ||
+                           errorMessage.includes('API key');
+        const isRateLimit = errorMessage.includes('rate limit') || 
+                           errorMessage.includes('429') ||
+                           errorMessage.includes('quota');
+        
+        const errorCategory = isAuthError ? 'AUTHENTICATION' : isRateLimit ? 'RATE_LIMIT' : 'OTHER';
+        
+        console.warn(`[LLM Router] ❌ Provider ${providerConfig.provider} failed (${errorCategory}): ${errorMessage}`);
+        
+        if (isAuthError) {
+          console.warn(`[LLM Router] ⚠️ Authentication issue with ${providerConfig.provider}. Check API key configuration.`);
+        } else if (isRateLimit) {
+          console.warn(`[LLM Router] ⚠️ Rate limit hit for ${providerConfig.provider}. Will try next provider.`);
+        }
+        
         errors.push({ provider: providerConfig.provider, error: errorMessage });
         // Continue to next provider - don't give up yet
         continue;
