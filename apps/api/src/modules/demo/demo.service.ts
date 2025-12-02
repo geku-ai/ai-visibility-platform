@@ -2132,44 +2132,54 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
    * Designed for speed and reliability with graceful degradation.
    */
   async getInstantSummaryV2(domain: string): Promise<{
+    demoRunId: string;
+    workspaceId: string;
     domain: string;
-    industry: { primary: string; confidence: number };
-    summary: {
-      whatYouDo: string;
-      whereYouOperate: string;
-      whoYouServe: string;
-      whyYouStandOut?: string;
-    };
-    geoScore: {
-      overall: number;
-      components: {
-        visibility: number;
-        trust: number;
-        citations: number;
-        schema: number;
-      };
-      explanation: string;
-    };
-    visibilitySnapshot: {
-      engines: Array<{
-        key: 'chatgpt' | 'claude' | 'gemini' | 'perplexity';
-        visible: boolean;
-        confidence: number;
-        samplePrompt?: string;
-        evidenceSnippet?: string;
-      }>;
-    };
-    topInsights: string[];
-    ctaHints: {
-      shouldSignUpForCopilot: boolean;
-      reasons: string[];
-    };
-    metadata: {
-      generatedAt: string;
-      serviceVersion: string;
+    brand: string;
+    industry: {
+      primary: string;
+      category: string;
+      vertical: string;
       confidence: number;
-      warnings?: string[];
+      reasoning: string;
     };
+    summary: {
+      summary: string;
+      targetAudience: string;
+      differentiators: string[];
+      confidence: number;
+    };
+    prompts: Array<{
+      id: string;
+      text: string;
+      intent: string;
+      industryRelevance: number;
+      commercialIntent: number;
+      reasoning: string;
+      evidence: {
+        hasBeenTested: boolean;
+        testedEngines: string[];
+        mentions: number;
+      };
+    }>;
+    competitors: any[];
+    shareOfVoice: any[];
+    citations: any[];
+    geoScore: {
+      total: number;
+      breakdown: {
+        aiVisibility: { score: number; explanation: string };
+        eeat: { score: number; explanation: string };
+        citations: { score: number; explanation: string };
+        schemaTechnical: { score: number; explanation: string };
+      };
+    };
+    eeatScore: any;
+    engines: Array<{ key: string; visible: boolean }>;
+    status: string;
+    progress: number;
+    totalJobs: number;
+    completedJobs: number;
   }> {
     const startTime = Date.now();
     const warnings: string[] = [];
@@ -2228,6 +2238,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       // Step 3: Generate limited prompts (max 10 for speed) and EXECUTE them
       let prompts: any[] = [];
       let promptRecords: Array<{ id: string; text: string }> = [];
+      let searchEngines: string[] = [];
       try {
         prompts = await this.evidenceBackedPrompts.generateEvidenceBackedPrompts(
           workspaceId,
@@ -2256,7 +2267,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           promptRecords = await this.getDemoPrompts(workspaceId);
           
           // Ensure engines exist (use search engines: Perplexity, Brave, AIO)
-          const searchEngines = ['PERPLEXITY', 'BRAVE', 'AIO'].filter(engine => {
+          searchEngines = ['PERPLEXITY', 'BRAVE', 'AIO'].filter(engine => {
             const requirements = this.engineEnvRequirements[engine];
             return requirements && requirements.every(v => process.env[v]);
           });
@@ -2460,8 +2471,8 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       }
 
       // EEAT insight
-      const eeatScore = geoScoreResult.breakdown?.eeat?.score || 0;
-      if (eeatScore < 60) {
+      const eeatScoreValue = geoScoreResult.breakdown?.eeat?.score || 0;
+      if (eeatScoreValue < 60) {
         topInsights.push('EEAT score below optimal - improve trust signals');
       }
 
