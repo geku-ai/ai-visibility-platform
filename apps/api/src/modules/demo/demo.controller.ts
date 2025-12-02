@@ -90,8 +90,19 @@ export class DemoController {
     if (!domain || typeof domain !== 'string' || domain.trim().length === 0) {
       throw new BadRequestException('Domain query parameter is required');
     }
-    const data = await this.demoService.getInstantSummaryV2(domain);
-    return { ok: true, data };
+    const summaryData = await this.demoService.getInstantSummaryV2(domain);
+    
+    // Wrap in PremiumResponse format expected by frontend
+    const premiumResponse = {
+      data: summaryData,
+      evidence: [], // Empty for instant summary V2
+      confidence: summaryData.metadata?.confidence || 0.5,
+      warnings: summaryData.metadata?.warnings || [],
+      explanation: summaryData.geoScore?.explanation || 'Instant summary analysis completed',
+      metadata: summaryData.metadata,
+    };
+    
+    return { ok: true, data: premiumResponse };
   }
 
   @Get('full-intelligence')
