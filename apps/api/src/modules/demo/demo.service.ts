@@ -2563,36 +2563,46 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       const promptIds = promptRecords.map(p => p.id);
       this.logger.log(`[Instant Summary] Counting jobs for workspace ${workspaceId} with ${promptIds.length} prompts: ${promptIds.slice(0, 3).join(', ')}${promptIds.length > 3 ? '...' : ''}`);
       
-      // First try: Count by promptId (more accurate)
+      // Primary method: Count by idempotencyKey pattern (most reliable for instant summary)
+      const idempotencyPattern = `${workspaceId}:instant_summary:%`;
       let jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
         `SELECT 
            COUNT(*)::int as total,
            SUM(CASE WHEN pr."status" = 'SUCCESS' THEN 1 ELSE 0 END)::int as completed
          FROM "prompt_runs" pr
-         JOIN "prompts" p ON p.id = pr."promptId"
          WHERE pr."workspaceId" = $1
-           AND p.id = ANY($2::text[])`,
-        [workspaceId, promptIds]
+           AND pr."idempotencyKey" LIKE $2`,
+        [workspaceId, idempotencyPattern]
       );
       
       let totalJobs = (jobCounts as any[])[0]?.total || 0;
       let completedJobs = (jobCounts as any[])[0]?.completed || 0;
       
-      // Fallback: If no jobs found by promptId, try counting by idempotencyKey pattern
+      // Fallback: If no jobs found by idempotencyKey, try counting by promptId
       if (totalJobs === 0 && promptIds.length > 0) {
-        this.logger.log(`[Instant Summary] No jobs found by promptId, trying idempotencyKey pattern`);
-        const idempotencyPattern = `${workspaceId}:instant_summary:%`;
+        this.logger.log(`[Instant Summary] No jobs found by idempotencyKey pattern, trying promptId method`);
         jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
           `SELECT 
              COUNT(*)::int as total,
              SUM(CASE WHEN pr."status" = 'SUCCESS' THEN 1 ELSE 0 END)::int as completed
            FROM "prompt_runs" pr
+           JOIN "prompts" p ON p.id = pr."promptId"
            WHERE pr."workspaceId" = $1
-             AND pr."idempotencyKey" LIKE $2`,
-          [workspaceId, idempotencyPattern]
+             AND p.id = ANY($2::text[])`,
+          [workspaceId, promptIds]
         );
         totalJobs = (jobCounts as any[])[0]?.total || 0;
         completedJobs = (jobCounts as any[])[0]?.completed || 0;
+      }
+      
+      // If still no jobs, check if any jobs exist for this workspace at all
+      if (totalJobs === 0) {
+        const anyJobs = await this.prisma.$queryRaw<{ count: number }>(
+          `SELECT COUNT(*)::int as count FROM "prompt_runs" WHERE "workspaceId" = $1`,
+          [workspaceId]
+        );
+        const anyJobsCount = (anyJobs as any[])[0]?.count || 0;
+        this.logger.warn(`[Instant Summary] No jobs found for instant summary pattern. Total jobs for workspace: ${anyJobsCount}`);
       }
       
       const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;

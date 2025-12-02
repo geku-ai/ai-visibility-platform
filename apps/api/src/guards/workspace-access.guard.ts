@@ -8,9 +8,15 @@ export class WorkspaceAccessGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const workspaceId = request.params.workspaceId || request.headers['x-workspace-id'];
-    const userId = request.user?.id || request.headers['x-user-id'];
+    // JWT payload has 'sub' or 'userId', not 'id'
+    const userId = request.user?.sub || request.user?.userId || request.user?.id || request.headers['x-user-id'];
 
     if (!workspaceId || !userId) {
+      console.error('[WorkspaceAccessGuard] Missing workspaceId or userId', {
+        workspaceId,
+        userId,
+        userObject: request.user,
+      });
       return false;
     }
 
@@ -23,9 +29,16 @@ export class WorkspaceAccessGuard implements CanActivate {
         }
       });
 
+      if (!member) {
+        console.warn('[WorkspaceAccessGuard] User not a member of workspace', {
+          workspaceId,
+          userId,
+        });
+      }
+
       return !!member;
     } catch (error) {
-      console.error('Workspace access check failed:', error);
+      console.error('[WorkspaceAccessGuard] Workspace access check failed:', error);
       return false;
     }
   }
