@@ -7,8 +7,6 @@ import { PrismaService } from '../database/prisma.service';
 
 @ApiTags('Admin')
 @Controller('admin')
-@UseGuards(JwtAuthGuard)
-@ApiBearerAuth()
 export class AdminController {
   constructor(
     @InjectQueue('runPrompt') private runPromptQ: Queue,
@@ -19,6 +17,8 @@ export class AdminController {
   ) {}
 
   @Get('system')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   async getSystem(@Request() req: any): Promise<any> {
     const [runPrompt, runBatch, dailyAgg, planner] = await Promise.all([
       this.runPromptQ.getWaitingCount(),
@@ -56,7 +56,7 @@ export class AdminController {
    * NOTE: Auth temporarily disabled for one-time migration
    */
   @Get('migrate/onboarding')
-  @UseGuards() // Override class-level guard - temporarily no auth required
+  // No @UseGuards - temporarily public for one-time migration
   async runOnboardingMigration(): Promise<any> {
     try {
       const migrationSQL = `
