@@ -2508,96 +2508,170 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       }
       overallConfidence = Math.max(0.3, Math.min(1, overallConfidence));
 
+      // Get prompts with evidence status for frontend polling
+      const promptRecordsWithEvidence = await Promise.all(
+        promptRecords.map(async (prompt) => {
+          // Check if any prompt runs have completed successfully for this prompt
+          const hasEvidence = await this.prisma.$queryRaw<{ count: number }>(
+            `SELECT COUNT(*)::int as count
+             FROM "prompt_runs" pr
+             WHERE pr."workspaceId" = $1
+               AND pr."promptId" = $2
+               AND pr."status" = 'SUCCESS'`,
+            [workspaceId, prompt.id]
+          );
+          const hasBeenTested = (hasEvidence as any[])[0]?.count > 0;
+          
+          return {
+            id: prompt.id,
+            text: prompt.text,
+            intent: 'buyer_intent',
+            industryRelevance: 0.8,
+            commercialIntent: 0.7,
+            reasoning: 'Generated for instant summary analysis',
+            evidence: {
+              hasBeenTested,
+              testedEngines: hasBeenTested ? searchEngines : [],
+              mentions: hasBeenTested ? 1 : 0,
+            },
+          };
+        })
+      );
+
+      // Get basic competitor data (empty for now, will be populated after jobs complete)
+      const competitors: any[] = [];
+
+      // Get share of voice data (empty for now, will be populated after jobs complete)
+      const shareOfVoice: any[] = [];
+
+      // Get citations (empty for now, will be populated after jobs complete)
+      const citations: any[] = [];
+
+      // Get EEAT score from geoScore breakdown
+      const eeatScore = geoScoreResult.breakdown?.eeat ? {
+        overall: geoScoreResult.breakdown.eeat.score || 0,
+        experience: geoScoreResult.breakdown.eeat.experience || 0,
+        expertise: geoScoreResult.breakdown.eeat.expertise || 0,
+        authoritativeness: geoScoreResult.breakdown.eeat.authoritativeness || 0,
+        trustworthiness: geoScoreResult.breakdown.eeat.trustworthiness || 0,
+      } : null;
+
+      // Count total and completed jobs
+      const jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
+        `SELECT 
+           COUNT(*)::int as total,
+           SUM(CASE WHEN pr."status" = 'SUCCESS' THEN 1 ELSE 0 END)::int as completed
+         FROM "prompt_runs" pr
+         JOIN "prompts" p ON p.id = pr."promptId"
+         WHERE pr."workspaceId" = $1
+           AND p.id = ANY($2::text[])`,
+        [workspaceId, promptRecords.map(p => p.id)]
+      );
+      const totalJobs = (jobCounts as any[])[0]?.total || 0;
+      const completedJobs = (jobCounts as any[])[0]?.completed || 0;
+      const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
+
       const duration = Date.now() - startTime;
       this.logger.log(`[Instant Summary V2] Generated in ${duration}ms with ${warnings.length} warnings`);
 
+      // Return structure matching PremiumInstantSummaryData that frontend expects
       return {
-        domain: normalized.host,
+        demoRunId: `instant_summary_${workspaceId}_${Date.now()}`,
+        workspaceId,
+        domain: normalized.href,
+        brand,
         industry: {
           primary: industryClassification.primaryIndustry || 'Unknown',
+          category: industryClassification.primaryIndustry?.split('/')[0]?.trim() || industryClassification.primaryIndustry || 'Unknown',
+          vertical: industryClassification.secondaryIndustries?.[0] || industryClassification.primaryIndustry || 'Unknown',
           confidence: Math.max(0, Math.min(1, industryClassification.confidence || 0.3)),
+          reasoning: industryClassification.reasoning || 'Industry detected from domain analysis',
         },
         summary: {
-          whatYouDo: businessSummary 
-            ? ((businessSummary as any).summary?.substring(0, 200) || 'Business information')
+          summary: businessSummary 
+            ? ((businessSummary as any).summary?.substring(0, 500) || 'Business information')
             : 'Business information unavailable',
-          whereYouOperate: industryClassification.primaryIndustry || 'Unknown',
-          whoYouServe: (businessSummary as any)?.targetAudience || 'Customers',
-          whyYouStandOut: (businessSummary as any)?.differentiators?.[0] || undefined,
+          targetAudience: (businessSummary as any)?.targetAudience || 'Customers',
+          differentiators: (businessSummary as any)?.differentiators || [],
+          confidence: (businessSummary as any)?.confidence || 0.5,
         },
+        prompts: promptRecordsWithEvidence,
+        competitors,
+        shareOfVoice,
+        citations,
         geoScore: {
-          overall: Math.max(0, Math.min(100, geoScoreResult.total)),
-          components: {
-            visibility: Math.max(0, Math.min(100, geoScoreResult.breakdown?.aiVisibility?.score || 0)),
-            trust: Math.max(0, Math.min(100, geoScoreResult.breakdown?.eeat?.score || 0)),
-            citations: Math.max(0, Math.min(100, geoScoreResult.breakdown?.citations?.score || 0)),
-            schema: Math.max(0, Math.min(100, geoScoreResult.breakdown?.schemaTechnical?.score || 0)),
+          total: Math.max(0, Math.min(100, geoScoreResult.total)), // Frontend expects .total, not .overall
+          breakdown: {
+            aiVisibility: {
+              score: Math.max(0, Math.min(100, geoScoreResult.breakdown?.aiVisibility?.score || 0)),
+              explanation: geoScoreResult.breakdown?.aiVisibility?.explanation || 'AI visibility analysis',
+            },
+            eeat: {
+              score: Math.max(0, Math.min(100, geoScoreResult.breakdown?.eeat?.score || 0)),
+              explanation: geoScoreResult.breakdown?.eeat?.explanation || 'EEAT analysis',
+            },
+            citations: {
+              score: Math.max(0, Math.min(100, geoScoreResult.breakdown?.citations?.score || 0)),
+              explanation: geoScoreResult.breakdown?.citations?.explanation || 'Citation analysis',
+            },
+            schemaTechnical: {
+              score: Math.max(0, Math.min(100, geoScoreResult.breakdown?.schemaTechnical?.score || 0)),
+              explanation: geoScoreResult.breakdown?.schemaTechnical?.explanation || 'Schema and technical analysis',
+            },
           },
-          explanation: this.generateGEOScoreExplanation(geoScoreResult),
         },
-        visibilitySnapshot: {
-          engines,
-        },
-        topInsights: topInsights.slice(0, 7), // Ensure max 7
-        ctaHints: {
-          shouldSignUpForCopilot: shouldSignUp,
-          reasons,
-        },
-        metadata: {
-          generatedAt: new Date().toISOString(),
-          serviceVersion: '2.0.0',
-          confidence: overallConfidence,
-          warnings: warnings.length > 0 ? warnings : undefined,
-        },
+        eeatScore,
+        engines: engines.map(e => ({ key: e.key, visible: e.visible })),
+        status: completedJobs === totalJobs && totalJobs > 0 ? 'analysis_complete' : 'analysis_running',
+        progress,
+        totalJobs,
+        completedJobs,
       };
     } catch (error) {
       const duration = Date.now() - startTime;
       this.logger.error(`[Instant Summary V2] Failed after ${duration}ms: ${error instanceof Error ? error.message : String(error)}`);
       
-      // Return degraded but usable response instead of throwing
+      // Return degraded but usable response matching PremiumInstantSummaryData structure
       return {
-        domain: normalized.host,
+        demoRunId: `instant_summary_error_${Date.now()}`,
+        workspaceId,
+        domain: normalized.href,
+        brand,
         industry: {
           primary: 'Unknown',
+          category: 'Unknown',
+          vertical: 'Unknown',
           confidence: 0.2,
+          reasoning: 'Analysis failed',
         },
         summary: {
-          whatYouDo: 'Unable to generate business summary',
-          whereYouOperate: 'Unknown',
-          whoYouServe: 'Customers',
-        },
-        geoScore: {
-          overall: 0,
-          components: {
-            visibility: 0,
-            trust: 0,
-            citations: 0,
-            schema: 0,
-          },
-          explanation: 'GEO Score unavailable due to data collection issues',
-        },
-        visibilitySnapshot: {
-          engines: ['chatgpt', 'claude', 'gemini', 'perplexity'].map(key => ({
-            key: key as 'chatgpt' | 'claude' | 'gemini' | 'perplexity',
-            visible: false,
-            confidence: 0.2,
-          })),
-        },
-        topInsights: [
-          'Unable to complete full analysis',
-          'Data collection encountered issues',
-          'Please try again or contact support',
-        ],
-        ctaHints: {
-          shouldSignUpForCopilot: true,
-          reasons: ['Complete analysis requires resolving data collection issues'],
-        },
-        metadata: {
-          generatedAt: new Date().toISOString(),
-          serviceVersion: '2.0.0',
+          summary: 'Unable to generate business summary',
+          targetAudience: 'Customers',
+          differentiators: [],
           confidence: 0.2,
-          warnings: [`Analysis failed: ${error instanceof Error ? error.message : String(error)}`],
         },
+        prompts: [],
+        competitors: [],
+        shareOfVoice: [],
+        citations: [],
+        geoScore: {
+          total: 0,
+          breakdown: {
+            aiVisibility: { score: 0, explanation: 'GEO Score unavailable due to data collection issues' },
+            eeat: { score: 0, explanation: 'EEAT analysis unavailable' },
+            citations: { score: 0, explanation: 'Citation analysis unavailable' },
+            schemaTechnical: { score: 0, explanation: 'Schema analysis unavailable' },
+          },
+        },
+        eeatScore: null,
+        engines: ['chatgpt', 'claude', 'gemini', 'perplexity'].map(key => ({
+          key: key as 'chatgpt' | 'claude' | 'gemini' | 'perplexity',
+          visible: false,
+        })),
+        status: 'error',
+        progress: 0,
+        totalJobs: 0,
+        completedJobs: 0,
       };
     }
   }
