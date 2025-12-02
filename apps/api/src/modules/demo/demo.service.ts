@@ -2549,6 +2549,30 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         })
       );
 
+      // Get EEAT score from geoScore breakdown
+      const eeatScore = geoScoreResult.breakdown?.eeat ? {
+        overall: geoScoreResult.breakdown.eeat.score || 0,
+        experience: geoScoreResult.breakdown.eeat.experience || 0,
+        expertise: geoScoreResult.breakdown.eeat.expertise || 0,
+        authoritativeness: geoScoreResult.breakdown.eeat.authoritativeness || 0,
+        trustworthiness: geoScoreResult.breakdown.eeat.trustworthiness || 0,
+      } : null;
+
+      // Count total and completed jobs
+      const jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
+        `SELECT 
+           COUNT(*)::int as total,
+           SUM(CASE WHEN pr."status" = 'SUCCESS' THEN 1 ELSE 0 END)::int as completed
+         FROM "prompt_runs" pr
+         JOIN "prompts" p ON p.id = pr."promptId"
+         WHERE pr."workspaceId" = $1
+           AND p.id = ANY($2::text[])`,
+        [workspaceId, promptRecords.map(p => p.id)]
+      );
+      const totalJobs = (jobCounts as any[])[0]?.total || 0;
+      const completedJobs = (jobCounts as any[])[0]?.completed || 0;
+      const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
+
       // Aggregate competitor, SOV, and citation data from completed jobs
       let competitors: any[] = [];
       let shareOfVoice: any[] = [];
@@ -2662,30 +2686,6 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           // Keep empty arrays if aggregation fails
         }
       }
-
-      // Get EEAT score from geoScore breakdown
-      const eeatScore = geoScoreResult.breakdown?.eeat ? {
-        overall: geoScoreResult.breakdown.eeat.score || 0,
-        experience: geoScoreResult.breakdown.eeat.experience || 0,
-        expertise: geoScoreResult.breakdown.eeat.expertise || 0,
-        authoritativeness: geoScoreResult.breakdown.eeat.authoritativeness || 0,
-        trustworthiness: geoScoreResult.breakdown.eeat.trustworthiness || 0,
-      } : null;
-
-      // Count total and completed jobs
-      const jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
-        `SELECT 
-           COUNT(*)::int as total,
-           SUM(CASE WHEN pr."status" = 'SUCCESS' THEN 1 ELSE 0 END)::int as completed
-         FROM "prompt_runs" pr
-         JOIN "prompts" p ON p.id = pr."promptId"
-         WHERE pr."workspaceId" = $1
-           AND p.id = ANY($2::text[])`,
-        [workspaceId, promptRecords.map(p => p.id)]
-      );
-      const totalJobs = (jobCounts as any[])[0]?.total || 0;
-      const completedJobs = (jobCounts as any[])[0]?.completed || 0;
-      const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
 
       const duration = Date.now() - startTime;
       this.logger.log(`[Instant Summary V2] Generated in ${duration}ms with ${warnings.length} warnings`);
