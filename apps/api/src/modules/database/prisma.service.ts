@@ -94,8 +94,33 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   get user() {
     return {
       findUnique: async (args: any) => {
-        const result = await this.$queryRaw('SELECT * FROM "User" WHERE id = $1', [args.where.id]);
-        return result[0] || null;
+        // Support both id and email lookups
+        if (args.where.id) {
+          const result = await this.$queryRaw('SELECT * FROM "users" WHERE id = $1', [args.where.id]);
+          return result[0] || null;
+        }
+        if (args.where.email) {
+          const result = await this.$queryRaw('SELECT * FROM "users" WHERE email = $1', [args.where.email]);
+          return result[0] || null;
+        }
+        return null;
+      },
+      findMany: async (args: any) => {
+        const where = args.where || {};
+        let query = 'SELECT * FROM "users" WHERE 1=1';
+        const params: any[] = [];
+        let paramIndex = 1;
+        
+        if (where.email) {
+          query += ` AND email = $${paramIndex++}`;
+          params.push(where.email);
+        }
+        if (where.id) {
+          query += ` AND id = $${paramIndex++}`;
+          params.push(where.id);
+        }
+        
+        return await this.$queryRaw(query, params);
       }
     };
   }

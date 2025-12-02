@@ -2579,8 +2579,10 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       let citations: any[] = [];
 
       // Only aggregate if we have completed jobs
-      if (completedJobs > 0) {
+      if (completedJobs > 0 && promptRecords.length > 0) {
         try {
+          this.logger.log(`[Instant Summary] Aggregating competitor/SOV/citation data for ${promptRecords.length} prompts`);
+          
           // Detect competitors from mentions (brands mentioned that aren't the main brand)
           const competitorRows = await this.prisma.$queryRaw<{
             brand: string;
@@ -2604,6 +2606,8 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
              LIMIT 10`,
             [workspaceId, promptRecords.map(p => p.id), brand]
           );
+
+          this.logger.log(`[Instant Summary] Found ${(competitorRows as any[]).length} competitors`);
 
           competitors = (competitorRows as any[]).map(row => ({
             domain: null,
@@ -2644,6 +2648,8 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           );
 
           const totalMentions = (sovRows as any[]).reduce((sum, row) => sum + (row.mentions || 0), 0);
+          this.logger.log(`[Instant Summary] Found ${(sovRows as any[]).length} brands in SOV, total mentions: ${totalMentions}`);
+          
           shareOfVoice = (sovRows as any[]).map(row => ({
             brand: row.brand,
             mentions: row.mentions || 0,
@@ -2676,15 +2682,20 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           );
 
           const totalCitations = (citationRows as any[]).reduce((sum, row) => sum + (row.references || 0), 0);
+          this.logger.log(`[Instant Summary] Found ${(citationRows as any[]).length} citation domains, total references: ${totalCitations}`);
+          
           citations = (citationRows as any[]).map(row => ({
             domain: row.domain,
             references: row.references || 0,
             sharePercentage: totalCitations > 0 ? Math.round(((row.references || 0) / totalCitations) * 100 * 100) / 100 : 0,
           }));
         } catch (error) {
-          this.logger.warn(`Failed to aggregate competitor/SOV/citation data: ${error instanceof Error ? error.message : String(error)}`);
+          this.logger.warn(`[Instant Summary] Failed to aggregate competitor/SOV/citation data: ${error instanceof Error ? error.message : String(error)}`);
+          this.logger.warn(`[Instant Summary] Error stack: ${error instanceof Error ? error.stack : 'N/A'}`);
           // Keep empty arrays if aggregation fails
         }
+      } else {
+        this.logger.log(`[Instant Summary] Skipping aggregation: completedJobs=${completedJobs}, promptCount=${promptRecords.length}`);
       }
 
       const duration = Date.now() - startTime;
