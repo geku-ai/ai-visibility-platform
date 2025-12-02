@@ -2636,7 +2636,22 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         try {
           this.logger.log(`[Instant Summary] Aggregating competitor/SOV/citation data for ${promptRecords.length} prompts`);
           
+          // First check if mentions exist at all for debugging
+          const totalMentionsCheck = await this.prisma.$queryRaw<{ count: number }>(
+            `SELECT COUNT(*)::int as count
+             FROM "mentions" m
+             JOIN "answers" a ON a.id = m."answerId"
+             JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+             JOIN "prompts" p ON p.id = pr."promptId"
+             WHERE pr."workspaceId" = $1
+               AND p.id = ANY($2::text[])`,
+            [workspaceId, promptRecords.map(p => p.id)]
+          );
+          const totalMentionsCount = (totalMentionsCheck as any[])[0]?.count || 0;
+          this.logger.log(`[Instant Summary] Total mentions found in database: ${totalMentionsCount}`);
+
           // Detect competitors from mentions (brands mentioned that aren't the main brand)
+          // Lowered threshold from 2 to 1 to catch more competitors
           const competitorRows = await this.prisma.$queryRaw<{
             brand: string;
             mentions: number;
@@ -2654,13 +2669,16 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
                AND m."brand" IS NOT NULL
                AND m."brand" != ''
              GROUP BY m."brand"
-             HAVING COUNT(*) >= 2
+             HAVING COUNT(*) >= 1
              ORDER BY COUNT(*) DESC
              LIMIT 10`,
             [workspaceId, promptRecords.map(p => p.id), brand]
           );
 
-          this.logger.log(`[Instant Summary] Found ${(competitorRows as any[]).length} competitors`);
+          this.logger.log(`[Instant Summary] Found ${(competitorRows as any[]).length} competitors after filtering`);
+          if ((competitorRows as any[]).length > 0) {
+            this.logger.log(`[Instant Summary] Competitor brands: ${(competitorRows as any[]).map(r => r.brand).join(', ')}`);
+          }
 
           // Transform competitors to match PremiumCompetitor interface expected by frontend
           competitors = await Promise.all((competitorRows as any[]).map(async (row) => {

@@ -40,20 +40,48 @@ export class AuthService {
     });
 
     if (!user) {
+      // Handle missing or invalid email - use userId-based email if email is missing/invalid
+      // This prevents duplicate key errors when multiple users have missing emails
+      let safeEmail = email;
+      if (!safeEmail || safeEmail === 'unknown@example.com' || safeEmail === 'missing' || !safeEmail.includes('@')) {
+        // Use userId-based email to ensure uniqueness
+        safeEmail = `${userId}@clerk.user`;
+        this.logger.warn(`Email missing or invalid for user ${userId}, using generated email: ${safeEmail}`);
+      }
+
       // Create user if doesn't exist (from Clerk) using raw SQL
+      // Use ON CONFLICT to handle both id and email conflicts gracefully
       const userQuery = `
         INSERT INTO "users" ("id", "email", "externalId", "createdAt")
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT ("id") DO NOTHING
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT ("id") DO UPDATE SET "externalId" = EXCLUDED."externalId"
         RETURNING *
       `;
-      const userResult = await this.prisma.$queryRaw<any>(
-        userQuery,
-        [userId, email, userId, new Date()]
-      );
-      user = userResult[0] || null;
-      if (user) {
-        this.logger.log(`Created new user: ${email} (${userId})`);
+      try {
+        const userResult = await this.prisma.$queryRaw<any[]>(
+          userQuery,
+          [userId, safeEmail, userId]
+        );
+        user = userResult && userResult.length > 0 ? userResult[0] : null;
+        if (user) {
+          this.logger.log(`Created new user: ${safeEmail} (${userId})`);
+        }
+      } catch (error: any) {
+        // If email conflict, try with userId-based email
+        if (error.message?.includes('users_email_key')) {
+          this.logger.warn(`Email conflict for ${safeEmail}, retrying with userId-based email`);
+          safeEmail = `${userId}@clerk.user`;
+          const retryResult = await this.prisma.$queryRaw<any[]>(
+            userQuery,
+            [userId, safeEmail, userId]
+          );
+          user = retryResult && retryResult.length > 0 ? retryResult[0] : null;
+          if (user) {
+            this.logger.log(`Created new user with fallback email: ${safeEmail} (${userId})`);
+          }
+        } else {
+          throw error;
+        }
       }
     }
 
@@ -69,7 +97,9 @@ export class AuthService {
       
       // Generate workspace ID
       const workspaceId = `ws_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      const workspaceName = `${email.split('@')[0]}'s Workspace`;
+      // Handle email extraction safely
+      const emailPrefix = user?.email?.split('@')[0] || userId.substring(0, 8);
+      const workspaceName = `${emailPrefix}'s Workspace`;
       
       // Create workspace with self_serve onboarding using raw SQL (table name is workspaces, not Workspace)
       const workspaceResult = await this.prisma.$queryRaw<any[]>(
