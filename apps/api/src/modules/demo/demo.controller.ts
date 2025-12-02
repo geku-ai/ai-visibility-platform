@@ -93,13 +93,22 @@ export class DemoController {
     const summaryData = await this.demoService.getInstantSummaryV2(domain);
     
     // Wrap in PremiumResponse format expected by frontend
+    // summaryData now matches PremiumInstantSummaryData structure
     const premiumResponse = {
       data: summaryData,
-      evidence: [], // Empty for instant summary V2
-      confidence: summaryData.metadata?.confidence || 0.5,
-      warnings: summaryData.metadata?.warnings || [],
-      explanation: summaryData.geoScore?.explanation || 'Instant summary analysis completed',
-      metadata: summaryData.metadata,
+      evidence: [], // Empty for instant summary V2 (will be populated after jobs complete)
+      confidence: summaryData.geoScore?.total ? summaryData.geoScore.total / 100 : 0.5,
+      warnings: summaryData.status === 'error' ? ['Analysis encountered errors'] : [],
+      explanation: summaryData.geoScore?.breakdown?.aiVisibility?.explanation || 
+                   `GEO Score: ${summaryData.geoScore?.total || 0}/100. Analysis ${summaryData.status === 'analysis_complete' ? 'complete' : 'in progress'}.`,
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        serviceVersion: '2.0.0',
+        status: summaryData.status,
+        progress: summaryData.progress,
+        totalJobs: summaryData.totalJobs,
+        completedJobs: summaryData.completedJobs,
+      },
     };
     
     return { ok: true, data: premiumResponse };
