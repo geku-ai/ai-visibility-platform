@@ -1,6 +1,8 @@
 /**
  * Onboarding Controller
  * Handles onboarding state and data collection endpoints
+ * 
+ * All endpoints require JWT authentication and workspace access verification.
  */
 
 import {
