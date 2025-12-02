@@ -40,42 +40,53 @@ export class AuthService {
     });
 
     if (!user) {
-      // Create user if doesn't exist (from Clerk)
-      user = await this.prisma.user.create({
-        data: {
-          id: userId,
-          email,
-          externalId: userId, // Clerk user ID
-        },
-      });
-      this.logger.log(`Created new user: ${email} (${userId})`);
+      // Create user if doesn't exist (from Clerk) using raw SQL
+      const userQuery = `
+        INSERT INTO "users" ("id", "email", "externalId", "createdAt")
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT ("id") DO NOTHING
+        RETURNING *
+      `;
+      const userResult = await this.prisma.$queryRaw<any>(
+        userQuery,
+        [userId, email, userId, new Date()]
+      );
+      user = userResult[0] || null;
+      if (user) {
+        this.logger.log(`Created new user: ${email} (${userId})`);
+      }
     }
 
     // Get existing workspaces
     const memberships = await this.prisma.workspaceMember.findMany({
       where: { userId },
-      include: {
-        workspace: true,
-      },
     });
 
     // If user has no workspaces, create one
     if (memberships.length === 0) {
       this.logger.log(`No workspace found for user ${userId}, creating default workspace`);
       
-      // Create workspace with self_serve onboarding
-      const workspace = await this.prisma.workspace.create({
-        data: {
-          name: `${email.split('@')[0]}'s Workspace`,
-          tier: 'FREE',
-          onboardingStatus: 'not_started',
-          onboardingEntryType: 'self_serve',
-        },
-      });
+      // Generate workspace ID
+      const workspaceId = `ws_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const workspaceName = `${email.split('@')[0]}'s Workspace`;
+      
+      // Create workspace with self_serve onboarding using raw SQL
+      const workspaceQuery = `
+        INSERT INTO "workspaces" ("id", "name", "tier", "onboardingStatus", "onboardingEntryType", "createdAt")
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `;
+      const workspaceResult = await this.prisma.$queryRaw<any>(
+        workspaceQuery,
+        [workspaceId, workspaceName, 'FREE', 'not_started', 'self_serve', new Date()]
+      );
+      const workspace = workspaceResult[0];
 
       // Add user as admin member
+      const memberId = `member_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       await this.prisma.workspaceMember.create({
         data: {
+          id: memberId,
           userId,
           workspaceId: workspace.id,
           role: 'ADMIN',
@@ -89,6 +100,14 @@ export class AuthService {
       return [workspace];
     }
 
-    return memberships.map((membership: any) => membership.workspace);
+    // Get workspace details for existing memberships
+    const workspaceIds = memberships.map((m: any) => m.workspaceId);
+    const workspaces = await Promise.all(
+      workspaceIds.map(async (id: string) => {
+        return await this.prisma.workspace.findUnique({ where: { id } });
+      })
+    );
+
+    return workspaces.filter(Boolean);
   }
 }
