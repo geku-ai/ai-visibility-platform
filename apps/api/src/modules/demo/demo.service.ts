@@ -2609,14 +2609,70 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
 
           this.logger.log(`[Instant Summary] Found ${(competitorRows as any[]).length} competitors`);
 
-          competitors = (competitorRows as any[]).map(row => ({
-            domain: null,
-            brandName: row.brand,
-            type: 'competitor',
-            confidence: Math.min(1, (row.mentions || 0) / 10),
-            reasoning: `Detected from ${row.mentions} mentions in AI responses`,
-            visibility: { score: Math.min(100, (row.mentions || 0) * 10) },
-            ranking: null,
+          // Transform competitors to match PremiumCompetitor interface expected by frontend
+          competitors = await Promise.all((competitorRows as any[]).map(async (row) => {
+            const competitorBrand = row.brand;
+            
+            // Get visibility per engine for this competitor
+            const engineVisibility = await Promise.all(searchEngines.map(async (engine) => {
+              const visibleCount = await this.prisma.$queryRaw<{ count: number }>(
+                `SELECT COUNT(DISTINCT pr."promptId")::int as count
+                 FROM "prompt_runs" pr
+                 JOIN "answers" a ON a."promptRunId" = pr.id
+                 JOIN "mentions" m ON m."answerId" = a.id
+                 JOIN "prompts" p ON p.id = pr."promptId"
+                 WHERE pr."workspaceId" = $1
+                   AND pr."engineKey" = $2
+                   AND pr."status" = 'SUCCESS'
+                   AND p.id = ANY($3::text[])
+                   AND LOWER(m."brand") = LOWER($4)`,
+                [workspaceId, engine, promptRecords.map(p => p.id), competitorBrand]
+              );
+              const promptsVisible = (visibleCount as any[])[0]?.count || 0;
+              
+              const testedCount = await this.prisma.$queryRaw<{ count: number }>(
+                `SELECT COUNT(DISTINCT pr."promptId")::int as count
+                 FROM "prompt_runs" pr
+                 JOIN "prompts" p ON p.id = pr."promptId"
+                 WHERE pr."workspaceId" = $1
+                   AND pr."engineKey" = $2
+                   AND p.id = ANY($3::text[])`,
+                [workspaceId, engine, promptRecords.map(p => p.id)]
+              );
+              const promptsTested = (testedCount as any[])[0]?.count || 0;
+              
+              return {
+                engine: engine,
+                visible: promptsVisible > 0,
+                promptsVisible,
+                promptsTested,
+              };
+            }));
+            
+            // Calculate overall visibility (percentage of prompts where competitor appears)
+            const totalPrompts = promptRecords.length;
+            const totalVisible = engineVisibility.reduce((sum, e) => sum + e.promptsVisible, 0);
+            const overallVisibility = totalPrompts > 0 ? Math.round((totalVisible / totalPrompts) * 100) : 0;
+            
+            // Derive domain from brand name (simplified - frontend may have better logic)
+            const domainGuess = competitorBrand.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9.-]/g, '') + '.com';
+            
+            return {
+              domain: domainGuess,
+              brandName: competitorBrand,
+              type: 'direct' as const,
+              confidence: Math.min(1, (row.mentions || 0) / 10), // Higher mentions = higher confidence
+              reasoning: `Found ${row.mentions} mentions across prompts`,
+              visibility: {
+                perEngine: engineVisibility,
+                overallVisibility,
+              },
+              ranking: {
+                averagePosition: 0, // Not calculated in instant summary
+                bestPosition: 0,
+                worstPosition: 0,
+              },
+            };
           }));
 
           // Calculate Share of Voice from mentions
