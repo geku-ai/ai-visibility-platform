@@ -2613,8 +2613,9 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           competitors = await Promise.all((competitorRows as any[]).map(async (row) => {
             const competitorBrand = row.brand;
             
-            // Get visibility per engine for this competitor
-            const engineVisibility = await Promise.all(searchEngines.map(async (engine) => {
+            // Get visibility per engine for this competitor (use searchEngines if available, otherwise default to common engines)
+            const enginesToCheck = searchEngines.length > 0 ? searchEngines : ['PERPLEXITY', 'BRAVE', 'AIO'];
+            const engineVisibility = await Promise.all(enginesToCheck.map(async (engine) => {
               const visibleCount = await this.prisma.$queryRaw<{ count: number }>(
                 `SELECT COUNT(DISTINCT pr."promptId")::int as count
                  FROM "prompt_runs" pr
