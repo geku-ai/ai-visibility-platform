@@ -78,13 +78,27 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: any) {
-    // Log payload for debugging (sanitized)
-    logger.log(`[JWT Strategy] Validating payload: sub=${payload.sub}, email=${payload.email || 'missing'}, issuer=${payload.iss || 'missing'}, audience=${payload.aud || 'missing'}`);
+    // Log full payload structure for debugging (sanitized)
+    const payloadKeys = Object.keys(payload).filter(k => !k.includes('secret') && !k.includes('key'));
+    logger.log(`[JWT Strategy] Validating payload: sub=${payload.sub}, email=${payload.email || 'missing'}, issuer=${payload.iss || 'missing'}, audience=${payload.aud || 'missing'}, availableClaims=${payloadKeys.join(',')}`);
+    
+    // Clerk JWT tokens may not include email for OAuth providers (Google, etc.)
+    // Try multiple fallback locations for email
+    let email = payload.email 
+      || payload.email_address 
+      || payload['https://clerk.com/email'] 
+      || payload['email_verified'] 
+      || null;
+    
+    // If email is still missing, log warning (AuthService will handle with userId-based email)
+    if (!email) {
+      logger.warn(`[JWT Strategy] Email not found in JWT payload for user ${payload.sub}. Available claims: ${payloadKeys.join(', ')}. Will use userId-based email fallback.`);
+    }
     
     // map claims to user object
     const user = { 
       sub: payload.sub, 
-      email: payload.email || payload.email_address || payload['https://clerk.com/email'] || 'unknown@example.com',
+      email: email || 'unknown@example.com', // Fallback - AuthService will replace with userId-based email
       userId: payload.sub,
       workspaceId: payload['workspaceId'] || payload['workspace_id'] || payload['https://clerk.com/workspaceId'] || null,
     };

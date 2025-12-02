@@ -257,8 +257,10 @@ export class RunPromptWorker {
       }
       const executionTime = Date.now() - startTime;
 
-      // Get brand/domain from demo run if this is a demo job
+      // Get brand/domain from demo run OR workspace (for instant summary)
       let brandsToSearch: string[] = [];
+      
+      // First try demo run (for legacy demo jobs)
       if (demoRunId) {
         try {
           const demoRunResult = await this.dbPool.query(
@@ -285,6 +287,43 @@ export class RunPromptWorker {
         } catch (error) {
           console.warn(`Failed to get demo run info for mention extraction: ${error instanceof Error ? error.message : String(error)}`);
         }
+      }
+      
+      // If no brands found from demo run, try workspace (for instant summary)
+      if (brandsToSearch.length === 0) {
+        try {
+          const workspaceResult = await this.dbPool.query(
+            'SELECT "brandName", "primaryDomain" FROM "workspaces" WHERE id = $1',
+            [workspaceId]
+          );
+          if (workspaceResult.rows.length > 0) {
+            const workspace = workspaceResult.rows[0];
+            // Add brand name if available
+            if (workspace.brandName) {
+              brandsToSearch.push(workspace.brandName);
+            }
+            // Add domain if available
+            if (workspace.primaryDomain) {
+              // Extract domain without protocol (e.g., "booking.com" from "https://booking.com")
+              const domain = workspace.primaryDomain.replace(/^https?:\/\//, '').replace(/^www\./, '');
+              brandsToSearch.push(domain);
+              // Also add the brand name if domain contains it (e.g., "booking" from "booking.com")
+              const domainParts = domain.split('.');
+              if (domainParts.length > 0) {
+                brandsToSearch.push(domainParts[0]);
+              }
+            }
+          }
+        } catch (error) {
+          console.warn(`Failed to get workspace info for mention extraction: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      // Log brands being searched for debugging
+      if (brandsToSearch.length > 0) {
+        console.log(`[RunPromptWorker] Searching for mentions of brands: ${brandsToSearch.join(', ')}`);
+      } else {
+        console.warn(`[RunPromptWorker] No brands found for mention extraction (workspaceId: ${workspaceId}, demoRunId: ${demoRunId || 'none'})`);
       }
 
       // Parse results - pass brands to extractMentions so it can find them
