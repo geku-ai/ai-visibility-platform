@@ -90,7 +90,8 @@ export class DemoController {
     if (!domain || typeof domain !== 'string' || domain.trim().length === 0) {
       throw new BadRequestException('Domain query parameter is required');
     }
-    return this.demoService.getInstantSummaryV2(domain);
+    const data = await this.demoService.getInstantSummaryV2(domain);
+    return { ok: true, data };
   }
 
   @Get('full-intelligence')
