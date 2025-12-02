@@ -7,6 +7,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
 import { WorkspaceAccessGuard } from '../../guards/workspace-access.guard';
+import { OnboardingCompleteGuard } from '../../guards/onboarding-complete.guard';
 import { GetWorkspaceId } from '../../decorators/workspace-id.decorator';
 import {
   DashboardAggregatorService,
@@ -20,7 +21,7 @@ import { GEOMaturityScore } from '@ai-visibility/geo';
 @ApiTags('GEO Dashboard')
 @ApiBearerAuth()
 @Controller('geo/dashboard')
-@UseGuards(JwtAuthGuard, WorkspaceAccessGuard)
+@UseGuards(JwtAuthGuard, WorkspaceAccessGuard, OnboardingCompleteGuard)
 export class DashboardController {
   constructor(
     private dashboardAggregator: DashboardAggregatorService

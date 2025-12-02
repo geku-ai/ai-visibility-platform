@@ -19,14 +19,19 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'User profile retrieved successfully' })
   async getProfile(@Request() req: any) {
     const user = await this.authService.validateUser(req.user.email);
-    const workspaces = await this.authService.getUserWorkspaces(req.user.userId);
+    
+    // Ensure user exists and has workspace (creates if needed)
+    const workspaces = await this.authService.getUserWorkspaces(
+      req.user.sub || req.user.userId,
+      req.user.email
+    );
     
     return {
       user: {
-        id: user.id,
-        email: user.email,
-        externalId: user.externalId,
-        createdAt: user.createdAt,
+        id: user?.id || req.user.sub || req.user.userId,
+        email: req.user.email,
+        externalId: user?.externalId || req.user.sub || req.user.userId,
+        createdAt: user?.createdAt || new Date(),
       },
       workspaces,
     };

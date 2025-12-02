@@ -5,11 +5,12 @@
 import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../guards/jwt-auth.guard';
+import { OnboardingCompleteGuard } from '../../guards/onboarding-complete.guard';
 import { MetricsService } from './metrics.service';
 
 @ApiTags('Metrics')
 @Controller('metrics')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, OnboardingCompleteGuard)
 @ApiBearerAuth()
 export class MetricsController {
   constructor(private metricsService: MetricsService) {}
