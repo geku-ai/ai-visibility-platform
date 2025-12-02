@@ -70,6 +70,26 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  // Raw execute method for unsafe SQL (DDL statements, multi-statement SQL)
+  async $executeRawUnsafe(query: string): Promise<number> {
+    const client = await this.pool.connect();
+    try {
+      // Split by semicolon and execute each statement
+      const statements = query.split(';').filter(s => s.trim().length > 0);
+      let totalRows = 0;
+      for (const statement of statements) {
+        const trimmed = statement.trim();
+        if (trimmed) {
+          const result = await client.query(trimmed);
+          totalRows += result.rowCount || 0;
+        }
+      }
+      return totalRows;
+    } finally {
+      client.release();
+    }
+  }
+
   // Mock Prisma methods for compatibility
   get user() {
     return {
