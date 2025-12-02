@@ -63,10 +63,16 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       secretOrKey = jwtSecret || 'dummy-secret-for-startup';
     }
 
+    // For Clerk tokens, don't validate audience (Clerk uses 'azp' instead of 'aud')
+    // Only validate audience if issuer doesn't contain 'clerk'
+    const isClerkToken = issuer && issuer.includes('clerk');
+    const shouldValidateAudience = audience && !isClerkToken;
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ...(secretOrKeyProvider ? { secretOrKeyProvider } : { secretOrKey }),
-      ...(issuer && audience ? { audience, issuer, algorithms: ['RS256'] } : {}),
+      ...(issuer ? { issuer, algorithms: ['RS256'] } : {}),
+      ...(shouldValidateAudience ? { audience } : {}),
       ignoreExpiration: false,
     });
   }

@@ -2549,14 +2549,119 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         })
       );
 
-      // Get basic competitor data (empty for now, will be populated after jobs complete)
-      const competitors: any[] = [];
+      // Aggregate competitor, SOV, and citation data from completed jobs
+      let competitors: any[] = [];
+      let shareOfVoice: any[] = [];
+      let citations: any[] = [];
 
-      // Get share of voice data (empty for now, will be populated after jobs complete)
-      const shareOfVoice: any[] = [];
+      // Only aggregate if we have completed jobs
+      if (completedJobs > 0) {
+        try {
+          // Detect competitors from mentions (brands mentioned that aren't the main brand)
+          const competitorRows = await this.prisma.$queryRaw<{
+            brand: string;
+            mentions: number;
+          }>(
+            `SELECT 
+               m."brand" as brand,
+               COUNT(*)::int as mentions
+             FROM "mentions" m
+             JOIN "answers" a ON a.id = m."answerId"
+             JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+             JOIN "prompts" p ON p.id = pr."promptId"
+             WHERE pr."workspaceId" = $1
+               AND p.id = ANY($2::text[])
+               AND LOWER(m."brand") != LOWER($3)
+               AND m."brand" IS NOT NULL
+               AND m."brand" != ''
+             GROUP BY m."brand"
+             HAVING COUNT(*) >= 2
+             ORDER BY COUNT(*) DESC
+             LIMIT 10`,
+            [workspaceId, promptRecords.map(p => p.id), brand]
+          );
 
-      // Get citations (empty for now, will be populated after jobs complete)
-      const citations: any[] = [];
+          competitors = (competitorRows as any[]).map(row => ({
+            domain: null,
+            brandName: row.brand,
+            type: 'competitor',
+            confidence: Math.min(1, (row.mentions || 0) / 10),
+            reasoning: `Detected from ${row.mentions} mentions in AI responses`,
+            visibility: { score: Math.min(100, (row.mentions || 0) * 10) },
+            ranking: null,
+          }));
+
+          // Calculate Share of Voice from mentions
+          const sovRows = await this.prisma.$queryRaw<{
+            brand: string;
+            mentions: number;
+            positiveMentions: number;
+            neutralMentions: number;
+            negativeMentions: number;
+          }>(
+            `SELECT 
+               m."brand" as brand,
+               COUNT(*)::int as mentions,
+               SUM(CASE WHEN m."sentiment" = 'POS' THEN 1 ELSE 0 END)::int as "positiveMentions",
+               SUM(CASE WHEN m."sentiment" = 'NEU' THEN 1 ELSE 0 END)::int as "neutralMentions",
+               SUM(CASE WHEN m."sentiment" = 'NEG' THEN 1 ELSE 0 END)::int as "negativeMentions"
+             FROM "mentions" m
+             JOIN "answers" a ON a.id = m."answerId"
+             JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+             JOIN "prompts" p ON p.id = pr."promptId"
+             WHERE pr."workspaceId" = $1
+               AND p.id = ANY($2::text[])
+               AND m."brand" IS NOT NULL
+               AND m."brand" != ''
+             GROUP BY m."brand"
+             ORDER BY COUNT(*) DESC
+             LIMIT 10`,
+            [workspaceId, promptRecords.map(p => p.id)]
+          );
+
+          const totalMentions = (sovRows as any[]).reduce((sum, row) => sum + (row.mentions || 0), 0);
+          shareOfVoice = (sovRows as any[]).map(row => ({
+            brand: row.brand,
+            mentions: row.mentions || 0,
+            positiveMentions: row.positiveMentions || 0,
+            neutralMentions: row.neutralMentions || 0,
+            negativeMentions: row.negativeMentions || 0,
+            sharePercentage: totalMentions > 0 ? Math.round(((row.mentions || 0) / totalMentions) * 100 * 100) / 100 : 0,
+          }));
+
+          // Get citations from citations table
+          const citationRows = await this.prisma.$queryRaw<{
+            domain: string;
+            references: number;
+          }>(
+            `SELECT 
+               LOWER(c."domain") as domain,
+               COUNT(*)::int as references
+             FROM "citations" c
+             JOIN "answers" a ON a.id = c."answerId"
+             JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+             JOIN "prompts" p ON p.id = pr."promptId"
+             WHERE pr."workspaceId" = $1
+               AND p.id = ANY($2::text[])
+               AND c."domain" IS NOT NULL
+               AND c."domain" != ''
+             GROUP BY LOWER(c."domain")
+             ORDER BY COUNT(*) DESC
+             LIMIT 10`,
+            [workspaceId, promptRecords.map(p => p.id)]
+          );
+
+          const totalCitations = (citationRows as any[]).reduce((sum, row) => sum + (row.references || 0), 0);
+          citations = (citationRows as any[]).map(row => ({
+            domain: row.domain,
+            references: row.references || 0,
+            sharePercentage: totalCitations > 0 ? Math.round(((row.references || 0) / totalCitations) * 100 * 100) / 100 : 0,
+          }));
+        } catch (error) {
+          this.logger.warn(`Failed to aggregate competitor/SOV/citation data: ${error instanceof Error ? error.message : String(error)}`);
+          // Keep empty arrays if aggregation fails
+        }
+      }
 
       // Get EEAT score from geoScore breakdown
       const eeatScore = geoScoreResult.breakdown?.eeat ? {
