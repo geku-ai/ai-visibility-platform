@@ -72,11 +72,19 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: any) {
+    // Log payload for debugging (sanitized)
+    logger.log(`[JWT Strategy] Validating payload: sub=${payload.sub}, email=${payload.email || 'missing'}, issuer=${payload.iss || 'missing'}, audience=${payload.aud || 'missing'}`);
+    
     // map claims to user object
-    return { 
+    const user = { 
       sub: payload.sub, 
-      email: payload.email, 
-      workspaceId: payload['workspaceId'] ?? 'debug-ws' 
+      email: payload.email || payload.email_address || payload['https://clerk.com/email'] || 'unknown@example.com',
+      userId: payload.sub,
+      workspaceId: payload['workspaceId'] || payload['workspace_id'] || payload['https://clerk.com/workspaceId'] || null,
     };
+    
+    logger.log(`[JWT Strategy] Mapped user: ${JSON.stringify({ ...user, email: user.email.substring(0, 10) + '...' })}`);
+    
+    return user;
   }
 }
