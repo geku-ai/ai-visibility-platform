@@ -78,9 +78,9 @@ export class AuthService {
          RETURNING *`,
         [workspaceId, workspaceName, 'FREE', 'not_started', 'self_serve']
       );
-      const workspace = workspaceResult && workspaceResult.length > 0 ? workspaceResult[0] : null;
+      const workspace: any = workspaceResult && workspaceResult.length > 0 ? workspaceResult[0] : null;
       
-      if (!workspace) {
+      if (!workspace || !workspace.id) {
         throw new Error('Failed to create workspace');
       }
 
