@@ -12,6 +12,7 @@
     "lint": "eslint src --ext .ts",
     "test": "jest",
     "migrate": "prisma migrate dev",
+    "migrate:deploy": "prisma migrate deploy",
     "push": "prisma db push",
     "reset": "prisma migrate reset",
     "seed": "tsx prisma/seed.ts",
