@@ -78,7 +78,11 @@ export class AuthService {
          RETURNING *`,
         [workspaceId, workspaceName, 'FREE', 'not_started', 'self_serve']
       );
-      const workspace = workspaceResult[0];
+      const workspace = workspaceResult && workspaceResult.length > 0 ? workspaceResult[0] : null;
+      
+      if (!workspace) {
+        throw new Error('Failed to create workspace');
+      }
 
       // Add user as admin member using raw SQL
       const memberId = `member_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
