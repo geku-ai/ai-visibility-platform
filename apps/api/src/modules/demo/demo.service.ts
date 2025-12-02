@@ -2559,7 +2559,12 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       } : null;
 
       // Count total and completed jobs
-      const jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
+      // Use idempotencyKey pattern to find jobs since they're queued with pattern: workspaceId:instant_summary:promptId:engine:timestamp
+      const promptIds = promptRecords.map(p => p.id);
+      this.logger.log(`[Instant Summary] Counting jobs for workspace ${workspaceId} with ${promptIds.length} prompts: ${promptIds.slice(0, 3).join(', ')}${promptIds.length > 3 ? '...' : ''}`);
+      
+      // First try: Count by promptId (more accurate)
+      let jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
         `SELECT 
            COUNT(*)::int as total,
            SUM(CASE WHEN pr."status" = 'SUCCESS' THEN 1 ELSE 0 END)::int as completed
@@ -2567,11 +2572,49 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
          JOIN "prompts" p ON p.id = pr."promptId"
          WHERE pr."workspaceId" = $1
            AND p.id = ANY($2::text[])`,
-        [workspaceId, promptRecords.map(p => p.id)]
+        [workspaceId, promptIds]
       );
-      const totalJobs = (jobCounts as any[])[0]?.total || 0;
-      const completedJobs = (jobCounts as any[])[0]?.completed || 0;
+      
+      let totalJobs = (jobCounts as any[])[0]?.total || 0;
+      let completedJobs = (jobCounts as any[])[0]?.completed || 0;
+      
+      // Fallback: If no jobs found by promptId, try counting by idempotencyKey pattern
+      if (totalJobs === 0 && promptIds.length > 0) {
+        this.logger.log(`[Instant Summary] No jobs found by promptId, trying idempotencyKey pattern`);
+        const idempotencyPattern = `${workspaceId}:instant_summary:%`;
+        jobCounts = await this.prisma.$queryRaw<{ total: number; completed: number }>(
+          `SELECT 
+             COUNT(*)::int as total,
+             SUM(CASE WHEN pr."status" = 'SUCCESS' THEN 1 ELSE 0 END)::int as completed
+           FROM "prompt_runs" pr
+           WHERE pr."workspaceId" = $1
+             AND pr."idempotencyKey" LIKE $2`,
+          [workspaceId, idempotencyPattern]
+        );
+        totalJobs = (jobCounts as any[])[0]?.total || 0;
+        completedJobs = (jobCounts as any[])[0]?.completed || 0;
+      }
+      
       const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
+      
+      this.logger.log(`[Instant Summary] Job counts: total=${totalJobs}, completed=${completedJobs}, progress=${progress}%`);
+      
+      // Also log status breakdown for debugging
+      if (totalJobs > 0) {
+        const statusBreakdown = await this.prisma.$queryRaw<{ status: string; count: number }>(
+          `SELECT pr."status", COUNT(*)::int as count
+           FROM "prompt_runs" pr
+           ${promptIds.length > 0 ? `JOIN "prompts" p ON p.id = pr."promptId"
+           WHERE pr."workspaceId" = $1
+             AND p.id = ANY($2::text[])` : `WHERE pr."workspaceId" = $1
+             AND pr."idempotencyKey" LIKE $2`}
+           GROUP BY pr."status"`,
+          promptIds.length > 0 ? [workspaceId, promptIds] : [workspaceId, `${workspaceId}:instant_summary:%`]
+        );
+        this.logger.log(`[Instant Summary] Status breakdown: ${JSON.stringify(statusBreakdown)}`);
+      } else {
+        this.logger.warn(`[Instant Summary] No jobs found at all for workspace ${workspaceId}. This might indicate jobs haven't been queued yet or there's a workspaceId mismatch.`);
+      }
 
       // Aggregate competitor, SOV, and citation data from completed jobs
       let competitors: any[] = [];

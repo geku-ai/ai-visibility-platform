@@ -129,7 +129,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
     return {
       findMany: async (args: any) => {
         const where = args.where || {};
-        let query = 'SELECT * FROM "WorkspaceMember" WHERE 1=1';
+        let query = 'SELECT * FROM "workspace_members" WHERE 1=1';
         const params: any[] = [];
         let paramIndex = 1;
         
@@ -147,7 +147,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       },
       count: async (args: any) => {
         const where = args.where || {};
-        let query = 'SELECT COUNT(*) as count FROM "WorkspaceMember" WHERE 1=1';
+        let query = 'SELECT COUNT(*) as count FROM "workspace_members" WHERE 1=1';
         const params: any[] = [];
         let paramIndex = 1;
         
@@ -161,7 +161,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       },
       findFirst: async (args: any) => {
         const where = args.where || {};
-        let query = 'SELECT * FROM "WorkspaceMember" WHERE 1=1';
+        let query = 'SELECT * FROM "workspace_members" WHERE 1=1';
         const params: any[] = [];
         let paramIndex = 1;
         
@@ -185,7 +185,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       create: async (args: any) => {
         const data = args.data || {};
         const query = `
-          INSERT INTO "WorkspaceMember" ("id", "workspaceId", "userId", "role", "joinedAt")
+          INSERT INTO "workspace_members" ("id", "workspaceId", "userId", "role", "joinedAt")
           VALUES ($1, $2, $3, $4, $5)
           RETURNING *
         `;
@@ -220,7 +220,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
         if (where.id) {
           params.push(where.id);
           const query = `
-            UPDATE "WorkspaceMember"
+            UPDATE "workspace_members"
             SET ${updates.join(', ')}
             WHERE id = $${paramIndex}
             RETURNING *
@@ -233,7 +233,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       delete: async (args: any) => {
         const where = args.where || {};
         if (where.id) {
-          const query = 'DELETE FROM "WorkspaceMember" WHERE id = $1 RETURNING *';
+          const query = 'DELETE FROM "workspace_members" WHERE id = $1 RETURNING *';
           const result = await this.$queryRaw(query, [where.id]);
           return result[0] || null;
         }
@@ -436,7 +436,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
       findUnique: async (args: any) => {
         const where = args.where || {};
         if (where.id) {
-          const query = 'SELECT * FROM "Workspace" WHERE id = $1';
+          const query = 'SELECT * FROM "workspaces" WHERE id = $1';
           const result = await this.$queryRaw(query, [where.id]);
           return result[0] || null;
         }

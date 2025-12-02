@@ -57,9 +57,9 @@ export class AuthService {
       }
     }
 
-    // Get existing workspaces using raw SQL
+    // Get existing workspaces using raw SQL (table name is workspace_members, not WorkspaceMember)
     const memberships = await this.prisma.$queryRaw<any[]>(
-      `SELECT * FROM "WorkspaceMember" WHERE "userId" = $1`,
+      `SELECT * FROM "workspace_members" WHERE "userId" = $1`,
       [userId]
     );
 
@@ -71,9 +71,9 @@ export class AuthService {
       const workspaceId = `ws_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const workspaceName = `${email.split('@')[0]}'s Workspace`;
       
-      // Create workspace with self_serve onboarding using raw SQL
+      // Create workspace with self_serve onboarding using raw SQL (table name is workspaces, not Workspace)
       const workspaceResult = await this.prisma.$queryRaw<any[]>(
-        `INSERT INTO "Workspace" ("id", "name", "tier", "onboardingStatus", "onboardingEntryType", "createdAt")
+        `INSERT INTO "workspaces" ("id", "name", "tier", "onboardingStatus", "onboardingEntryType", "createdAt")
          VALUES ($1, $2, $3, $4, $5, NOW())
          RETURNING *`,
         [workspaceId, workspaceName, 'FREE', 'not_started', 'self_serve']
@@ -84,10 +84,10 @@ export class AuthService {
         throw new Error('Failed to create workspace');
       }
 
-      // Add user as admin member using raw SQL
+      // Add user as admin member using raw SQL (table name is workspace_members, not WorkspaceMember)
       const memberId = `member_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       await this.prisma.$executeRaw(
-        `INSERT INTO "WorkspaceMember" ("id", "workspaceId", "userId", "role", "joinedAt")
+        `INSERT INTO "workspace_members" ("id", "workspaceId", "userId", "role", "joinedAt")
          VALUES ($1, $2, $3, $4, NOW())`,
         [memberId, workspace.id, userId, 'ADMIN']
       );
@@ -106,7 +106,7 @@ export class AuthService {
     
     const placeholders = workspaceIds.map((_, i) => `$${i + 1}`).join(', ');
     const workspaces = await this.prisma.$queryRaw<any[]>(
-      `SELECT * FROM "Workspace" WHERE id IN (${placeholders})`,
+      `SELECT * FROM "workspaces" WHERE id IN (${placeholders})`,
       workspaceIds
     );
 
