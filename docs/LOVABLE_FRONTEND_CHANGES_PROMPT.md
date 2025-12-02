@@ -90,44 +90,129 @@ export default function Dashboard() {
   }, [activeWorkspace?.id, onboardingState?.onboardingStatus]);
 ```
 
-#### Step 1.3: Update Data Display
+#### Step 1.3: Add Data Transformation Helpers
+Add these helper functions BEFORE the component (after imports, before the component):
+
+```typescript
+// Extract engine visibility from intelligence data
+const extractEngineVisibility = (intelligenceData: any) => {
+  const engines: Array<{ key: string; visible: boolean; visibilityScore?: number }> = [];
+  
+  // Try to extract from crossEnginePatterns
+  if (intelligenceData?.crossEnginePatterns?.enginesRecognizing) {
+    intelligenceData.crossEnginePatterns.enginesRecognizing.forEach((e: any) => {
+      engines.push({
+        key: e.engine?.toLowerCase() || e.engine,
+        visible: true,
+        visibilityScore: e.recognitionScore,
+      });
+    });
+  }
+  
+  // If no engines found, check citations
+  if (engines.length === 0 && intelligenceData?.citations) {
+    const citations = Array.isArray(intelligenceData.citations)
+      ? intelligenceData.citations
+      : Object.values(intelligenceData.citations);
+    
+    const enginesWithData = new Set(
+      citations.map((c: any) => c.engine?.toLowerCase()).filter(Boolean)
+    );
+    
+    ['chatgpt', 'claude', 'gemini', 'perplexity'].forEach(key => {
+      engines.push({
+        key,
+        visible: enginesWithData.has(key),
+      });
+    });
+  }
+  
+  // Fallback: all false
+  if (engines.length === 0) {
+    ['chatgpt', 'claude', 'gemini', 'perplexity'].forEach(key => {
+      engines.push({ key, visible: false });
+    });
+  }
+  
+  return engines;
+};
+
+// Transform citations to frontend format
+const transformCitations = (intelligenceData: any) => {
+  let citations = intelligenceData?.citations;
+  
+  // Handle array format
+  if (Array.isArray(citations)) {
+    return citations.map((c: any) => ({
+      domain: c.domain || c.url?.split('/')[2] || 'unknown',
+      references: c.references || c.count || 1,
+      sharePercentage: c.sharePercentage || 0,
+      engines: c.engines || [],
+      lastSeen: c.lastSeen || c.date || new Date().toISOString(),
+      competitorOnly: c.competitorOnly || false,
+    }));
+  }
+  
+  // Handle object format (grouped by domain)
+  if (citations && typeof citations === 'object') {
+    return Object.entries(citations).map(([domain, data]: [string, any]) => ({
+      domain,
+      references: data.references || data.count || 1,
+      sharePercentage: data.sharePercentage || 0,
+      engines: data.engines || [],
+      lastSeen: data.lastSeen || data.date || new Date().toISOString(),
+      competitorOnly: data.competitorOnly || false,
+    }));
+  }
+  
+  return [];
+};
+```
+
+#### Step 1.4: Update Data Display
 Replace the hardcoded values with data from `intelligenceData`:
 
 **AI Visibility Score (around line 107-108):**
 ```typescript
 // Replace hardcoded "72" with:
-{intelligenceData?.geoScore?.overall || intelligenceData?.maturityScore?.total || 0}
+{intelligenceData?.geoScore?.overall || 0}
 ```
 
 **KPI Cards (around line 150+):**
 Extract real values from `intelligenceData`:
-- **Total Mentions**: `intelligenceData?.shareOfVoice?.reduce((sum, item) => sum + item.mentions, 0) || 0`
-- **Engines Visible**: `intelligenceData?.engines?.filter(e => e.visible).length || 0`
-- **Top Citations**: `intelligenceData?.citations?.length || 0`
-- **Share of Voice**: Calculate from `intelligenceData?.shareOfVoice`
+```typescript
+// Calculate from sovAnalysis (share of voice)
+const shareOfVoice = intelligenceData?.sovAnalysis || [];
+const totalMentions = shareOfVoice.reduce((sum: number, item: any) => 
+  sum + (item.mentions || item.count || 0), 0
+);
+
+// Engine visibility
+const engines = extractEngineVisibility(intelligenceData);
+const enginesVisible = engines.filter(e => e.visible).length;
+
+// Citations count
+const citations = transformCitations(intelligenceData);
+const topCitations = citations.length;
+```
 
 **Engine Coverage (around line 24-28):**
 Replace `mockEngineData` with:
 ```typescript
-const engineData = intelligenceData?.engines?.map((engine: any) => ({
-  engine: engine.key || engine.name,
+const engines = extractEngineVisibility(intelligenceData);
+const engineData = engines.map((engine) => ({
+  engine: engine.key.charAt(0).toUpperCase() + engine.key.slice(1),
   coverage: engine.visibilityScore || (engine.visible ? 85 : 0),
-})) || [];
+}));
 ```
 
 **Citations Table (around line 38-42):**
 Replace `mockCitedDomains` with:
 ```typescript
-const citedDomains = intelligenceData?.citations?.map((citation: any) => ({
-  domain: citation.domain,
-  appearances: citation.references || citation.count || 0,
-  engines: citation.engines || [],
-  lastSeen: citation.lastSeen || new Date().toISOString(),
-  competitorOnly: citation.competitorOnly || false,
-})) || [];
+const citedDomains = transformCitations(intelligenceData);
 ```
 
-#### Step 1.4: Add Loading and Error States
+#### Step 1.5: Add Loading and Error States
 Add before the return statement:
 
 ```typescript
