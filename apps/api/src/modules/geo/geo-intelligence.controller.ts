@@ -110,7 +110,7 @@ export class GEOIntelligenceController {
       // Get workspace context
       const workspace = await this.prisma.workspace.findUnique({
         where: { id: workspaceId },
-        select: { id: true, domain: true, brandName: true },
+        select: { id: true, primaryDomain: true, brandName: true },
       });
 
       if (!workspace) {
@@ -118,7 +118,7 @@ export class GEOIntelligenceController {
       }
 
       const brandName = workspace.brandName || 'Unknown';
-      const domain = workspace.domain || '';
+      const domain = workspace.primaryDomain || '';
 
       // Check cache (TTL: 5 minutes)
       // Cache key includes workspaceId and refresh flag to ensure proper isolation
@@ -281,7 +281,7 @@ export class GEOIntelligenceController {
 
       const workspace = await this.prisma.workspace.findUnique({
         where: { id: workspaceId },
-        select: { id: true, domain: true, brandName: true },
+        select: { id: true, primaryDomain: true, brandName: true },
       });
 
       if (!workspace) {
@@ -289,7 +289,7 @@ export class GEOIntelligenceController {
       }
 
       const brandName = workspace.brandName || 'Unknown';
-      const domain = workspace.domain || '';
+      const domain = workspace.primaryDomain || '';
 
       // Generate opportunities
       const opportunities = await this.opportunitiesService.generateOpportunities(
@@ -387,7 +387,7 @@ export class GEOIntelligenceController {
 
       const workspace = await this.prisma.workspace.findUnique({
         where: { id: workspaceId },
-        select: { id: true, domain: true, brandName: true },
+        select: { id: true, primaryDomain: true, brandName: true },
       });
 
       if (!workspace) {
@@ -395,13 +395,14 @@ export class GEOIntelligenceController {
       }
 
       const brandName = workspace.brandName || 'Unknown';
+      const domain = workspace.primaryDomain || '';
 
       // Get full intelligence context for recommendations
       // In production, this could be cached or passed differently
       const intelligence = await this.orchestrator.orchestrateIntelligence(
         workspaceId,
         brandName,
-        workspace.domain || '',
+        domain,
         {
           includeOpportunities: true,
           includeRecommendations: false, // We'll generate them separately
@@ -455,7 +456,7 @@ export class GEOIntelligenceController {
 
       return {
         workspaceId,
-        domain: workspace.domain || '',
+        domain: workspace.primaryDomain || '',
         recommendations: paginated,
         metadata: {
           generatedAt: new Date().toISOString(),

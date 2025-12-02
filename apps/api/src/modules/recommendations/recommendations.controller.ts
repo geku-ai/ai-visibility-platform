@@ -58,7 +58,7 @@ export class RecommendationsController {
       // Validate workspace
       const workspace = await this.prisma.workspace.findUnique({
         where: { id: workspaceId },
-        select: { id: true, domain: true, brandName: true },
+        select: { id: true, primaryDomain: true, brandName: true },
       });
 
       if (!workspace) {
@@ -72,12 +72,13 @@ export class RecommendationsController {
       }
 
       const brandName = workspace.brandName || 'Unknown';
+      const domain = workspace.primaryDomain || '';
 
       // Get full intelligence context for recommendations
       const intelligence = await this.orchestrator.orchestrateIntelligence(
         workspaceId,
         brandName,
-        workspace.domain || '',
+        domain,
         {
           includeOpportunities: true,
           includeRecommendations: false,
@@ -129,7 +130,7 @@ export class RecommendationsController {
 
       return {
         workspaceId,
-        domain: workspace.domain || '',
+        domain: workspace.primaryDomain || '',
         recommendations: paginated,
         metadata: {
           generatedAt: new Date().toISOString(),
