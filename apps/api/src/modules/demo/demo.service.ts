@@ -2225,8 +2225,9 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         warnings.push('Business summary failed, using defaults');
       }
 
-      // Step 3: Generate limited prompts (max 10 for speed)
+      // Step 3: Generate limited prompts (max 10 for speed) and EXECUTE them
       let prompts: any[] = [];
+      let promptRecords: Array<{ id: string; text: string }> = [];
       try {
         prompts = await this.evidenceBackedPrompts.generateEvidenceBackedPrompts(
           workspaceId,
@@ -2244,6 +2245,57 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         prompts = prompts.slice(0, 10);
         if (prompts.length === 0) {
           warnings.push('No prompts generated, visibility analysis may be limited');
+        } else {
+          // Save prompts to database and queue prompt runs
+          await this.replaceWorkspacePrompts(
+            workspaceId,
+            prompts.map(p => ({ text: p.text || p, source: 'llm' as const }))
+          );
+          
+          // Get saved prompt records
+          promptRecords = await this.getDemoPrompts(workspaceId);
+          
+          // Ensure engines exist (use search engines: Perplexity, Brave, AIO)
+          const searchEngines = ['PERPLEXITY', 'BRAVE', 'AIO'].filter(engine => {
+            const requirements = this.engineEnvRequirements[engine];
+            return requirements && requirements.every(v => process.env[v]);
+          });
+          
+          if (searchEngines.length > 0 && promptRecords.length > 0) {
+            await this.ensureEngines(workspaceId, searchEngines);
+            
+            // Queue prompt runs asynchronously (don't wait for completion)
+            const jobs = promptRecords.flatMap((prompt) =>
+              searchEngines.map((engine) => {
+                const idempotencyKey = `${workspaceId}:instant_summary:${prompt.id}:${engine}:${Date.now()}`;
+                return {
+                  name: 'runPrompt',
+                  data: {
+                    workspaceId,
+                    promptId: prompt.id,
+                    engineKey: engine,
+                    idempotencyKey,
+                    userId: 'instant-summary-user',
+                  },
+                  opts: {
+                    removeOnComplete: { count: 100 },
+                    removeOnFail: { count: 50 },
+                    attempts: 3, // Retry up to 3 times with fallbacks
+                  },
+                };
+              })
+            );
+            
+            if (jobs.length > 0) {
+              // Queue jobs asynchronously - don't block response
+              this.runPromptQueue.addBulk(jobs).catch(error => {
+                this.logger.warn(`Failed to queue instant summary prompt runs: ${error instanceof Error ? error.message : String(error)}`);
+              });
+              this.logger.log(`[Instant Summary] Queued ${jobs.length} prompt runs for ${promptRecords.length} prompts across ${searchEngines.length} engines`);
+            }
+          } else {
+            warnings.push('No search engines available or no prompts to run');
+          }
         }
       } catch (error) {
         this.logger.warn(`Prompt generation failed: ${error instanceof Error ? error.message : String(error)}`);

@@ -11,3 +11,4 @@ ALTER TABLE "workspaces" ADD COLUMN "businessSize" TEXT;
 ALTER TABLE "workspaces" ADD COLUMN "goals" TEXT[] DEFAULT ARRAY[]::TEXT[];
 ALTER TABLE "workspaces" ADD COLUMN "copilotPreferences" JSONB;
 
+

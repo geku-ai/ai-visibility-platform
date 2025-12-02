@@ -271,3 +271,4 @@ If any required field is missing when calling `POST /v1/onboarding/complete`, th
 - The `tier` field in the response helps the frontend determine feature availability
 - Onboarding data is stored directly on the `Workspace` model for easy access by GEO Intelligence and Copilot features
 
+

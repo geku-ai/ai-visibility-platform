@@ -49,43 +49,4 @@ export class AdminController {
       timestamp: new Date().toISOString(),
     };
   }
-
-  /**
-   * TEMPORARY: Run onboarding migration
-   * TODO: Remove this endpoint after migration is complete
-   * NOTE: Auth temporarily disabled for one-time migration
-   */
-  @Get('migrate/onboarding')
-  // No @UseGuards - temporarily public for one-time migration
-  async runOnboardingMigration(): Promise<any> {
-    try {
-      const migrationSQL = `
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "onboardingStatus" TEXT NOT NULL DEFAULT 'not_started';
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "onboardingEntryType" TEXT;
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "primaryDomain" TEXT;
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "brandName" TEXT;
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "businessType" TEXT;
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "location" JSONB;
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "userRole" TEXT;
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "competitors" TEXT[] DEFAULT ARRAY[]::TEXT[];
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "businessSize" TEXT;
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "goals" TEXT[] DEFAULT ARRAY[]::TEXT[];
-        ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "copilotPreferences" JSONB;
-      `;
-
-      await this.prisma.$executeRawUnsafe(migrationSQL);
-
-      return {
-        success: true,
-        message: 'Onboarding migration completed successfully',
-        timestamp: new Date().toISOString(),
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString(),
-      };
-    }
-  }
 }

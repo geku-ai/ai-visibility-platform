@@ -13,3 +13,4 @@ ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "businessSize" TEXT;
 ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "goals" TEXT[] DEFAULT ARRAY[]::TEXT[];
 ALTER TABLE "workspaces" ADD COLUMN IF NOT EXISTS "copilotPreferences" JSONB;
 
+
