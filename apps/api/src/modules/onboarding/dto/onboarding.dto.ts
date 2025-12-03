@@ -147,7 +147,15 @@ export class SaveOnboardingDataRequestDto {
   @ApiProperty({ description: 'Onboarding data', type: OnboardingDataDto })
   @ValidateNested()
   @Type(() => OnboardingDataDto)
-  data: OnboardingDataDto;
+  @IsOptional()
+  data?: OnboardingDataDto;
+
+  // Support frontend sending 'onboardingData' instead of 'data'
+  @ApiPropertyOptional({ description: 'Onboarding data (alternative field name)', type: OnboardingDataDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => OnboardingDataDto)
+  onboardingData?: OnboardingDataDto;
 }
 
 

@@ -160,7 +160,14 @@ export class OnboardingController {
 
     this.logger.log(`Saving onboarding data for workspace ${body.workspaceId}, user ${userId}`);
     
-    await this.onboardingService.saveOnboardingData(body.workspaceId, userId, body.data);
+    // Support both 'data' and 'onboardingData' field names from frontend
+    const onboardingData = body.data || body.onboardingData;
+    
+    if (!onboardingData) {
+      throw new Error('Onboarding data is required. Provide either "data" or "onboardingData" field.');
+    }
+    
+    await this.onboardingService.saveOnboardingData(body.workspaceId, userId, onboardingData);
     
     return this.onboardingService.getOnboardingState(userId, body.workspaceId);
   }
