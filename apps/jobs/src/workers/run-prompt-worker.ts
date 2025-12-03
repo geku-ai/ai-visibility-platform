@@ -373,12 +373,24 @@ export class RunPromptWorker {
       
       // Log mention extraction results for debugging
       if (mentions.length > 0) {
+        const foundBrands = [...new Set(mentions.map(m => m.brand))];
         console.log(`[RunPromptWorker] Found ${mentions.length} mention(s) for brands: ${brandsToSearch.join(', ')}`);
+        console.log(`[RunPromptWorker] Mentioned brands in response: ${foundBrands.join(', ')}`);
+        console.log(`[RunPromptWorker] Brand confidence scores: ${mentions.map(m => `${m.brand}:${m.confidence.toFixed(2)}`).join(', ')}`);
       } else if (brandsToSearch.length > 0) {
         console.warn(`[RunPromptWorker] No mentions found in response (length: ${result.answerText.length} chars) for brands: ${brandsToSearch.join(', ')}`);
-        // Log a sample of the response for debugging (first 200 chars)
-        const sample = result.answerText.substring(0, 200).replace(/\n/g, ' ');
+        // Log a sample of the response for debugging (first 500 chars to see more context)
+        const sample = result.answerText.substring(0, 500).replace(/\n/g, ' ');
         console.warn(`[RunPromptWorker] Response sample: ${sample}...`);
+        // Also check if any brand name appears in the response (case-insensitive)
+        const responseLower = result.answerText.toLowerCase();
+        const foundInText = brandsToSearch.filter(brand => responseLower.includes(brand.toLowerCase()));
+        if (foundInText.length > 0) {
+          console.warn(`[RunPromptWorker] Brand names found in text (but not extracted as mentions): ${foundInText.join(', ')}`);
+          console.warn(`[RunPromptWorker] This suggests the confidence threshold (0.4) might be too high or the matching logic needs improvement`);
+        } else {
+          console.warn(`[RunPromptWorker] None of the brand names appear in the response text at all`);
+        }
       }
       const citations = extractCitations(result.answerText, {});
       const sentiment = classifySentiment(result.answerText);

@@ -39,6 +39,16 @@ export function extractMentions(
 
   const mentions: Mention[] = [];
   const processedText = caseSensitive ? text : text.toLowerCase();
+  
+  // Create mapping from lowercase brand to original brand (preserve first occurrence as canonical)
+  const brandMap = new Map<string, string>();
+  for (const brand of brands) {
+    const key = caseSensitive ? brand : brand.toLowerCase();
+    if (!brandMap.has(key)) {
+      brandMap.set(key, brand);
+    }
+  }
+  
   const processedBrands = caseSensitive ? brands : brands.map(b => b.toLowerCase());
 
   // Filter brands based on allowlist/denylist
@@ -52,13 +62,42 @@ export function extractMentions(
     return true;
   });
 
+  // Also create variations of brands (e.g., "booking.com" -> "booking", "Booking.com" -> "booking")
+  // This helps catch mentions where the domain extension is omitted or the case differs
+  const brandVariations = new Set<string>();
+  const variationToOriginal = new Map<string, string>();
+  
   for (const brand of filteredBrands) {
+    brandVariations.add(brand);
+    const original = brandMap.get(brand) || brand;
+    variationToOriginal.set(brand, original);
+    
+    // Add domain without extension (e.g., "booking.com" -> "booking")
+    const domainMatch = brand.match(/^([^.]+)\./);
+    if (domainMatch) {
+      const baseDomain = domainMatch[1].toLowerCase();
+      if (baseDomain !== brand && baseDomain.length > 2) {
+        brandVariations.add(baseDomain);
+        variationToOriginal.set(baseDomain, original);
+      }
+    }
+    
+    // Add brand without common TLDs
+    const withoutTld = brand.replace(/\.(com|net|org|io|co|ai|app)$/, '').toLowerCase();
+    if (withoutTld !== brand && withoutTld.length > 2) {
+      brandVariations.add(withoutTld);
+      variationToOriginal.set(withoutTld, original);
+    }
+  }
+
+  for (const brand of brandVariations) {
     const mentions_found = findBrandMentions(
       text,
       processedText,
       brand,
       contextWindow,
-      minConfidence
+      minConfidence,
+      variationToOriginal
     );
     mentions.push(...mentions_found);
   }
@@ -75,11 +114,15 @@ function findBrandMentions(
   processedText: string,
   brand: string,
   contextWindow: number,
-  minConfidence: number
+  minConfidence: number,
+  brandMap: Map<string, string>
 ): Mention[] {
   const mentions: Mention[] = [];
   const brandWords = brand.split(/\s+/);
   const textWords = processedText.split(/\s+/);
+  
+  // Get original brand name from map
+  const originalBrand = brandMap.get(brand) || brand;
   
   // Look for exact matches first
   let index = 0;
@@ -91,7 +134,7 @@ function findBrandMentions(
       const sentiment = analyzeSentiment(snippet);
       
       mentions.push({
-        brand: getOriginalBrandName(brand),
+        brand: originalBrand,
         position,
         sentiment,
         snippet,
@@ -113,7 +156,7 @@ function findBrandMentions(
       const sentiment = analyzeSentiment(snippet);
       
       mentions.push({
-        brand: getOriginalBrandName(brand),
+        brand: originalBrand,
         position,
         sentiment,
         snippet,
@@ -268,10 +311,11 @@ function analyzeSentiment(snippet: string): Sentiment {
 
 /**
  * Get original brand name (preserve case)
+ * @deprecated Use brandMap parameter in findBrandMentions instead
  */
 function getOriginalBrandName(brand: string): string {
-  // This would typically maintain a mapping of lowercase to original case
-  // For now, just return the brand as-is
+  // This function is kept for backward compatibility but is no longer used
+  // The brandMap in findBrandMentions now handles preserving original case
   return brand;
 }
 
