@@ -2855,8 +2855,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           const totalMentions = (sovRows as any[]).reduce((sum, row) => sum + (row.mentions || 0), 0);
           this.logger.log(`[Instant Summary] Found ${(sovRows as any[]).length} brands in SOV, total mentions: ${totalMentions}`);
           
-          // Normalize main brand for matching (same logic as in competitor detection)
-          const mainBrandBase = normalized.host.toLowerCase().replace(/^www\./, '').split('.')[0];
+          // Reuse mainBrandBase from competitor detection above (already calculated)
           
           shareOfVoice = (sovRows as any[]).map(row => {
             // If this row matches the main brand (by base name), use the derived brand name for consistency
