@@ -2676,6 +2676,64 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           );
           const totalMentionsCount = (totalMentionsCheck as any[])[0]?.count || 0;
           this.logger.log(`[Instant Summary] Total mentions found in database: ${totalMentionsCount}`);
+          
+          // Diagnostic: Show what brand names are actually in the database
+          if (totalMentionsCount > 0) {
+            const brandNamesCheck = await this.prisma.$queryRaw<{ brand: string; count: number }>(
+              `SELECT m."brand" as brand, COUNT(*)::int as count
+               FROM "mentions" m
+               JOIN "answers" a ON a.id = m."answerId"
+               JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+               JOIN "prompts" p ON p.id = pr."promptId"
+               WHERE pr."workspaceId" = $1
+                 AND p.id = ANY($2::text[])
+               GROUP BY m."brand"
+               ORDER BY COUNT(*) DESC
+               LIMIT 20`,
+              [workspaceId, promptRecords.map(p => p.id)]
+            );
+            const brandNames = (brandNamesCheck as any[]).map(row => `${row.brand} (${row.count})`).join(', ');
+            this.logger.log(`[Instant Summary] Brand names in mentions: ${brandNames}`);
+            this.logger.log(`[Instant Summary] Main brand being searched: "${brand}" (normalized: "${mainBrandNormalized}", base: "${mainBrandBase}")`);
+          } else {
+            // Check if there are any mentions at all for this workspace (not just these prompts)
+            const anyMentionsCheck = await this.prisma.$queryRaw<{ count: number }>(
+              `SELECT COUNT(*)::int as count
+               FROM "mentions" m
+               JOIN "answers" a ON a.id = m."answerId"
+               JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+               WHERE pr."workspaceId" = $1`,
+              [workspaceId]
+            );
+            const anyMentionsCount = (anyMentionsCheck as any[])[0]?.count || 0;
+            this.logger.warn(`[Instant Summary] No mentions found for these prompts. Total mentions for workspace: ${anyMentionsCount}`);
+            
+            // Check if jobs completed successfully
+            const completedRunsCheck = await this.prisma.$queryRaw<{ count: number }>(
+              `SELECT COUNT(*)::int as count
+               FROM "prompt_runs" pr
+               JOIN "prompts" p ON p.id = pr."promptId"
+               WHERE pr."workspaceId" = $1
+                 AND p.id = ANY($2::text[])
+                 AND pr."status" = 'SUCCESS'`,
+              [workspaceId, promptRecords.map(p => p.id)]
+            );
+            const completedRunsCount = (completedRunsCheck as any[])[0]?.count || 0;
+            this.logger.log(`[Instant Summary] Completed prompt runs: ${completedRunsCount} of ${completedJobs}`);
+            
+            // Check if answers exist
+            const answersCheck = await this.prisma.$queryRaw<{ count: number }>(
+              `SELECT COUNT(*)::int as count
+               FROM "answers" a
+               JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+               JOIN "prompts" p ON p.id = pr."promptId"
+               WHERE pr."workspaceId" = $1
+                 AND p.id = ANY($2::text[])`,
+              [workspaceId, promptRecords.map(p => p.id)]
+            );
+            const answersCount = (answersCheck as any[])[0]?.count || 0;
+            this.logger.log(`[Instant Summary] Answers created: ${answersCount}`);
+          }
 
           // Detect competitors from mentions (brands mentioned that aren't the main brand)
           // Normalize brand names to base domain (without TLD) for comparison
