@@ -127,6 +127,16 @@ export class StartOnboardingRequestDto {
   @ApiProperty({ description: 'Workspace ID' })
   @IsString()
   workspaceId: string;
+
+  @ApiPropertyOptional({ description: 'Entry type (optional, ignored if provided)' })
+  @IsOptional()
+  @IsString()
+  entryType?: string;
+
+  @ApiPropertyOptional({ description: 'Demo run ID (optional, ignored if provided)' })
+  @IsOptional()
+  @IsString()
+  demoRunId?: string;
 }
 
 export class SaveOnboardingDataRequestDto {

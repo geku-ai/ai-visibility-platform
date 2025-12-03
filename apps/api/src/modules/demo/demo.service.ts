@@ -2698,11 +2698,12 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
               const visibleCount = await this.prisma.$queryRaw<{ count: number }>(
                 `SELECT COUNT(DISTINCT pr."promptId")::int as count
                  FROM "prompt_runs" pr
+                 JOIN "engines" e ON e.id = pr."engineId"
                  JOIN "answers" a ON a."promptRunId" = pr.id
                  JOIN "mentions" m ON m."answerId" = a.id
                  JOIN "prompts" p ON p.id = pr."promptId"
                  WHERE pr."workspaceId" = $1
-                   AND pr."engineKey" = $2
+                   AND e."key" = $2
                    AND pr."status" = 'SUCCESS'
                    AND p.id = ANY($3::text[])
                    AND LOWER(m."brand") = LOWER($4)`,
@@ -2713,9 +2714,10 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
               const testedCount = await this.prisma.$queryRaw<{ count: number }>(
                 `SELECT COUNT(DISTINCT pr."promptId")::int as count
                  FROM "prompt_runs" pr
+                 JOIN "engines" e ON e.id = pr."engineId"
                  JOIN "prompts" p ON p.id = pr."promptId"
                  WHERE pr."workspaceId" = $1
-                   AND pr."engineKey" = $2
+                   AND e."key" = $2
                    AND p.id = ANY($3::text[])`,
                 [workspaceId, engine, promptRecords.map(p => p.id)]
               );
