@@ -159,11 +159,22 @@ export class PremiumGEOScoreService {
       let totalPrompts = 0;
       let totalVisible = 0;
 
+      // Normalize brand name for matching (remove TLD, protocol, www)
+      const normalizeBrandForMatching = (brand: string): string => {
+        return brand.toLowerCase()
+          .replace(/^https?:\/\//, '')
+          .replace(/^www\./, '')
+          .replace(/\.(com|net|org|io|co|ai|app|dev)$/, '');
+      };
+      const normalizedBrand = normalizeBrandForMatching(brandName);
+      const brandBase = normalizedBrand.split('.')[0];
+
       for (const engine of engines) {
         let promptsVisible = 0;
         let promptsTested = 0;
 
         for (const prompt of prompts) {
+          // Use flexible brand matching to catch variations like "airbnb.com" when searching for "Airbnb"
           const mentionCountResult = await this.dbPool.query<{ count: number }>(
             `SELECT COUNT(*)::int AS count
              FROM "mentions" m
@@ -173,9 +184,14 @@ export class PremiumGEOScoreService {
              WHERE pr."workspaceId" = $1
                AND pr."promptId" = $2
                AND e."key" = $3
-               AND LOWER(m."brand") = LOWER($4)
+               AND (
+                 LOWER(m."brand") = LOWER($4)
+                 OR LOWER(m."brand") = LOWER($5)
+                 OR LOWER(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', '')) = LOWER($5)
+                 OR LOWER(SPLIT_PART(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', ''), '.', 1)) = LOWER($6)
+               )
                AND pr."status" = 'SUCCESS'`,
-            [workspaceId, prompt.promptId, engine, brandName]
+            [workspaceId, prompt.promptId, engine, brandName, normalizedBrand, brandBase]
           );
 
           promptsTested += 1;
@@ -203,6 +219,7 @@ export class PremiumGEOScoreService {
         let enginesVisible = 0;
 
         for (const engine of engines) {
+          // Use flexible brand matching (same as above)
           const mentionCountResult = await this.dbPool.query<{ count: number }>(
             `SELECT COUNT(*)::int AS count
              FROM "mentions" m
@@ -212,9 +229,14 @@ export class PremiumGEOScoreService {
              WHERE pr."workspaceId" = $1
                AND pr."promptId" = $2
                AND e."key" = $3
-               AND LOWER(m."brand") = LOWER($4)
+               AND (
+                 LOWER(m."brand") = LOWER($4)
+                 OR LOWER(m."brand") = LOWER($5)
+                 OR LOWER(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', '')) = LOWER($5)
+                 OR LOWER(SPLIT_PART(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', ''), '.', 1)) = LOWER($6)
+               )
                AND pr."status" = 'SUCCESS'`,
-            [workspaceId, prompt.promptId, engine, brandName]
+            [workspaceId, prompt.promptId, engine, brandName, normalizedBrand, brandBase]
           );
 
           if (mentionCountResult.rows[0]?.count > 0) {
@@ -237,8 +259,21 @@ export class PremiumGEOScoreService {
         missing.push(`Low visibility: Only ${Math.round(avgCoverage)}% average coverage across engines`);
       }
 
-      const explanation = `AI Visibility score of ${score}/100 based on average coverage across ${details.perEngine.length} engines. ` +
-        `${details.perEngine.filter(e => e.coverage > 0).length} engines show visibility, with an average of ${Math.round(details.perEngine.reduce((sum, e) => sum + e.coverage, 0) / details.perEngine.length)}% prompt coverage.`;
+      // Only show explanation if we have engine data, otherwise use a generic message
+      const enginesWithVisibility = details.perEngine.filter(e => e.coverage > 0).length;
+      const avgCoverageForExplanation = details.perEngine.length > 0 
+        ? Math.round(details.perEngine.reduce((sum, e) => sum + e.coverage, 0) / details.perEngine.length)
+        : 0;
+      
+      let explanation: string;
+      if (details.perEngine.length === 0) {
+        explanation = `AI Visibility analysis in progress. Data collection may still be ongoing.`;
+      } else if (enginesWithVisibility === 0 && score === 0) {
+        explanation = `AI Visibility score of 0/100. No mentions detected across ${details.perEngine.length} engines. This may indicate low visibility or incomplete data collection.`;
+      } else {
+        explanation = `AI Visibility score of ${score}/100 based on average coverage across ${details.perEngine.length} engines. ` +
+          `${enginesWithVisibility} engine${enginesWithVisibility !== 1 ? 's' : ''} show visibility, with an average of ${avgCoverageForExplanation}% prompt coverage.`;
+      }
 
       return {
         score,

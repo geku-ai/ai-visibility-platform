@@ -336,6 +336,19 @@ export function extractAllBrandMentions(
     'under', 'underneath', 'until', 'upon', 'within', 'without'
   ]);
   
+  // Generic business/category terms that shouldn't be treated as brand names
+  const genericTerms = new Set([
+    'vacation rentals', 'vacation rental', 'hotel', 'hotels', 'booking', 'bookings', 'reservation', 'reservations',
+    'travel', 'travels', 'trip', 'trips', 'tour', 'tours', 'tourist', 'tourists', 'destination', 'destinations',
+    'accommodation', 'accommodations', 'lodging', 'property', 'properties', 'rental', 'rentals',
+    'service', 'services', 'platform', 'platforms', 'website', 'websites', 'site', 'sites',
+    'company', 'companies', 'business', 'businesses', 'organization', 'organizations',
+    'provider', 'providers', 'vendor', 'vendors', 'supplier', 'suppliers',
+    'solution', 'solutions', 'product', 'products', 'application', 'applications', 'app', 'apps',
+    'software', 'system', 'systems', 'technology', 'technologies', 'tool', 'tools',
+    'marketplace', 'marketplaces', 'store', 'stores', 'shop', 'shops', 'retailer', 'retailers'
+  ]);
+  
   // Match capitalized words/phrases that look like brand names
   // Pattern: Start of sentence or after punctuation, followed by capitalized word(s)
   const brandNamePattern = /(?:^|[.!?;:\-–—\s])([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\.[a-z]+)?)(?=\s|$|[.!?;:\-–—,])/g;
@@ -344,8 +357,13 @@ export function extractAllBrandMentions(
     const brandLower = brand.toLowerCase();
     const firstWord = brand.split(/\s+/)[0].toLowerCase();
     
-    // Skip if it's a common word, excluded brand, or too short
+    // Skip if it's a common word, excluded brand, generic term, or too short
     if (excludeSet.has(brandLower) || commonWords.has(firstWord) || brand.length < minLength) {
+      continue;
+    }
+    
+    // Skip generic business/category terms
+    if (genericTerms.has(brandLower) || genericTerms.has(firstWord)) {
       continue;
     }
     
