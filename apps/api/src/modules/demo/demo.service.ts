@@ -2694,7 +2694,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
             );
             const brandNames = (brandNamesCheck as any[]).map(row => `${row.brand} (${row.count})`).join(', ');
             this.logger.log(`[Instant Summary] Brand names in mentions: ${brandNames}`);
-            this.logger.log(`[Instant Summary] Main brand being searched: "${brand}" (normalized: "${mainBrandNormalized}", base: "${mainBrandBase}")`);
+            // Note: mainBrandNormalized and mainBrandBase will be logged after they're declared below
           } else {
             // Check if there are any mentions at all for this workspace (not just these prompts)
             const anyMentionsCheck = await this.prisma.$queryRaw<{ count: number }>(
@@ -2750,6 +2750,11 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           const mainBrandNormalized = normalizeBrandForComparison(brand);
           const mainBrandDomain = normalized.host.toLowerCase().replace(/^www\./, '');
           const mainBrandBase = mainBrandDomain.split('.')[0];
+          
+          // Log diagnostic info about brand matching (after variables are declared)
+          if (totalMentionsCount > 0) {
+            this.logger.log(`[Instant Summary] Main brand being searched: "${brand}" (normalized: "${mainBrandNormalized}", base: "${mainBrandBase}")`);
+          }
           
           // Get all unique brands from mentions, normalized to group variations together
           const allBrandRows = await this.prisma.$queryRaw<{
