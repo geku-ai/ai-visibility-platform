@@ -355,7 +355,17 @@ export function extractAllBrandMentions(
     'review', 'reviews', 'rating', 'ratings', 'feedback', 'testimonial', 'testimonials',
     'guide', 'guides', 'tutorial', 'tutorials', 'help', 'support', 'faq', 'faqs',
     'category', 'categories', 'type', 'types', 'kind', 'kinds', 'style', 'styles',
-    'option', 'options', 'choice', 'choices', 'alternative', 'alternatives', 'selection', 'selections'
+    'option', 'options', 'choice', 'choices', 'alternative', 'alternatives', 'selection', 'selections',
+    // Common generic words that appear in AI responses
+    'overview', 'overviews', 'top', 'tops', 'best', 'bests', 'leading', 'leadings',
+    'popular', 'populars', 'famous', 'famouses', 'well-known', 'well known',
+    'premium', 'premiums', 'luxury', 'luxuries', 'budget', 'budgets', 'cheap', 'cheaps',
+    'affordable', 'affordables', 'expensive', 'expensives', 'free', 'frees', 'paid', 'paids',
+    'asia', 'asias', 'europe', 'europes', 'america', 'americas', 'north', 'norths', 'south', 'souths',
+    'east', 'easts', 'west', 'wests', 'global', 'globals', 'international', 'internationals',
+    'worldwide', 'worldwides', 'local', 'locals', 'regional', 'regionals', 'national', 'nationals',
+    'domestic', 'domestics', 'world', 'worlds', 'country', 'countries', 'city', 'cities',
+    'region', 'regions', 'area', 'areas', 'location', 'locations', 'place', 'places'
   ]);
   
   // Match capitalized words/phrases that look like brand names
@@ -381,15 +391,19 @@ export function extractAllBrandMentions(
       continue;
     }
     // Skip if it's a generic phrase pattern (e.g., "Best X", "Top X", "Online X", "X Agencies", "X Services")
-    if (/^(best|top|leading|popular|famous|well-known|renowned|premium|luxury|budget|cheap|affordable|expensive|free|paid)\s+/i.test(brand)) {
+    if (/^(best|top|leading|popular|famous|well-known|renowned|premium|luxury|budget|cheap|affordable|expensive|free|paid|overview|overviews)\s+/i.test(brand)) {
       continue;
     }
     // Skip if it ends with generic business terms (e.g., "X Agencies", "X Services", "X Platforms")
     if (/\s+(agencies|agency|services|service|platforms|platform|companies|company|businesses|business|solutions|solution|providers|provider|vendors|vendor|suppliers|supplier|tools|tool|systems|system|applications|application|apps|app|websites|website|sites|site|stores|store|shops|shop|retailers|retailer|marketplaces|marketplace)$/i.test(brand)) {
       continue;
     }
-    // Skip single generic words that are too common
+    // Skip single generic words that are too common (including geographic terms)
     if (brandWords.length === 1 && genericTerms.has(brandLower)) {
+      continue;
+    }
+    // Skip if it's a single capitalized word that's a common geographic or descriptive term
+    if (brandWords.length === 1 && /^(overview|top|best|leading|popular|asia|europe|america|north|south|east|west|global|international|worldwide|local|regional|national|domestic|world|country|city|region|area|location|place)$/i.test(brand)) {
       continue;
     }
     
