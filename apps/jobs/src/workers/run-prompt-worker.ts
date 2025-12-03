@@ -291,31 +291,69 @@ export class RunPromptWorker {
       
       // If no brands found from demo run, try workspace (for instant summary)
       if (brandsToSearch.length === 0) {
-        try {
-          const workspaceResult = await this.dbPool.query(
-            'SELECT "brandName", "primaryDomain" FROM "workspaces" WHERE id = $1',
-            [workspaceId]
-          );
-          if (workspaceResult.rows.length > 0) {
-            const workspace = workspaceResult.rows[0];
-            // Add brand name if available
-            if (workspace.brandName) {
-              brandsToSearch.push(workspace.brandName);
-            }
-            // Add domain if available
-            if (workspace.primaryDomain) {
-              // Extract domain without protocol (e.g., "booking.com" from "https://booking.com")
-              const domain = workspace.primaryDomain.replace(/^https?:\/\//, '').replace(/^www\./, '');
-              brandsToSearch.push(domain);
-              // Also add the brand name if domain contains it (e.g., "booking" from "booking.com")
-              const domainParts = domain.split('.');
-              if (domainParts.length > 0) {
-                brandsToSearch.push(domainParts[0]);
+        // Retry logic: workspace might not be committed yet when job starts
+        let workspaceRetries = 3;
+        let workspaceFound = false;
+        
+        while (workspaceRetries > 0 && !workspaceFound) {
+          try {
+            const workspaceResult = await this.dbPool.query(
+              'SELECT "brandName", "primaryDomain" FROM "workspaces" WHERE id = $1',
+              [workspaceId]
+            );
+            if (workspaceResult.rows.length > 0) {
+              const workspace = workspaceResult.rows[0];
+              workspaceFound = true;
+              
+              // Add brand name if available
+              if (workspace.brandName) {
+                brandsToSearch.push(workspace.brandName);
+                // Also add capitalized version for better matching
+                const capitalized = workspace.brandName.charAt(0).toUpperCase() + workspace.brandName.slice(1).toLowerCase();
+                if (capitalized !== workspace.brandName.toLowerCase()) {
+                  brandsToSearch.push(capitalized);
+                }
+              }
+              // Add domain if available
+              if (workspace.primaryDomain) {
+                // Extract domain without protocol (e.g., "booking.com" from "https://booking.com")
+                const domain = workspace.primaryDomain.replace(/^https?:\/\//, '').replace(/^www\./, '');
+                brandsToSearch.push(domain);
+                // Also add capitalized version
+                const domainCapitalized = domain.charAt(0).toUpperCase() + domain.slice(1);
+                if (domainCapitalized !== domain.toLowerCase()) {
+                  brandsToSearch.push(domainCapitalized);
+                }
+                // Also add the brand name if domain contains it (e.g., "booking" from "booking.com")
+                const domainParts = domain.split('.');
+                if (domainParts.length > 0) {
+                  const baseDomain = domainParts[0];
+                  brandsToSearch.push(baseDomain);
+                  // Add capitalized version
+                  const baseCapitalized = baseDomain.charAt(0).toUpperCase() + baseDomain.slice(1);
+                  if (baseCapitalized !== baseDomain.toLowerCase()) {
+                    brandsToSearch.push(baseCapitalized);
+                  }
+                }
+              }
+              
+              console.log(`[RunPromptWorker] Retrieved ${brandsToSearch.length} brand(s) from workspace: ${brandsToSearch.join(', ')}`);
+            } else {
+              workspaceRetries--;
+              if (workspaceRetries > 0) {
+                console.warn(`[RunPromptWorker] Workspace ${workspaceId} not found, retrying in 500ms... (${workspaceRetries} retries left)`);
+                await new Promise(resolve => setTimeout(resolve, 500));
               }
             }
+          } catch (error) {
+            workspaceRetries--;
+            if (workspaceRetries > 0) {
+              console.warn(`[RunPromptWorker] Failed to get workspace info, retrying in 500ms... (${workspaceRetries} retries left): ${error instanceof Error ? error.message : String(error)}`);
+              await new Promise(resolve => setTimeout(resolve, 500));
+            } else {
+              console.warn(`[RunPromptWorker] Failed to get workspace info for mention extraction after retries: ${error instanceof Error ? error.message : String(error)}`);
+            }
           }
-        } catch (error) {
-          console.warn(`Failed to get workspace info for mention extraction: ${error instanceof Error ? error.message : String(error)}`);
         }
       }
       
@@ -327,7 +365,21 @@ export class RunPromptWorker {
       }
 
       // Parse results - pass brands to extractMentions so it can find them
-      const mentions = extractMentions(result.answerText, brandsToSearch, {});
+      // Lower minConfidence to 0.4 to catch more mentions (was 0.6 default)
+      // This helps when LLM responses mention brands in different contexts
+      const mentions = extractMentions(result.answerText, brandsToSearch, {
+        minConfidence: 0.4, // Lower threshold to catch more mentions
+      });
+      
+      // Log mention extraction results for debugging
+      if (mentions.length > 0) {
+        console.log(`[RunPromptWorker] Found ${mentions.length} mention(s) for brands: ${brandsToSearch.join(', ')}`);
+      } else if (brandsToSearch.length > 0) {
+        console.warn(`[RunPromptWorker] No mentions found in response (length: ${result.answerText.length} chars) for brands: ${brandsToSearch.join(', ')}`);
+        // Log a sample of the response for debugging (first 200 chars)
+        const sample = result.answerText.substring(0, 200).replace(/\n/g, ' ');
+        console.warn(`[RunPromptWorker] Response sample: ${sample}...`);
+      }
       const citations = extractCitations(result.answerText, {});
       const sentiment = classifySentiment(result.answerText);
 
@@ -341,16 +393,26 @@ export class RunPromptWorker {
       });
 
       // Create mentions
+      let mentionsCreated = 0;
       for (const mention of mentions) {
-        await prisma.mention.create({
-          data: {
-            answerId: answer.id,
-            brand: mention.brand,
-            position: mention.position,
-            sentiment: mention.sentiment,
-            snippet: mention.snippet,
-          },
-        });
+        try {
+          await prisma.mention.create({
+            data: {
+              answerId: answer.id,
+              brand: mention.brand,
+              position: mention.position,
+              sentiment: mention.sentiment,
+              snippet: mention.snippet || '', // Ensure snippet is not null
+            },
+          });
+          mentionsCreated++;
+        } catch (error) {
+          console.error(`[RunPromptWorker] Failed to create mention for brand "${mention.brand}": ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+      
+      if (mentionsCreated > 0) {
+        console.log(`[RunPromptWorker] Created ${mentionsCreated} mention(s) in database for answer ${answer.id}`);
       }
 
       // Create citations
