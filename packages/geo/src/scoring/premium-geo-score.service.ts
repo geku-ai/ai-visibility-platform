@@ -252,27 +252,32 @@ export class PremiumGEOScoreService {
       }
 
       // Calculate score: average coverage across all engines
-      const avgCoverage = details.perEngine.reduce((sum, e) => sum + e.coverage, 0) / details.perEngine.length;
+      const avgCoverage = details.perEngine.length > 0 
+        ? details.perEngine.reduce((sum, e) => sum + e.coverage, 0) / details.perEngine.length 
+        : 0;
       const score = Math.round(avgCoverage);
 
-      if (score < 50) {
+      if (score < 50 && details.perEngine.length > 0) {
         missing.push(`Low visibility: Only ${Math.round(avgCoverage)}% average coverage across engines`);
       }
 
       // Only show explanation if we have engine data, otherwise use a generic message
       const enginesWithVisibility = details.perEngine.filter(e => e.coverage > 0).length;
-      const avgCoverageForExplanation = details.perEngine.length > 0 
-        ? Math.round(details.perEngine.reduce((sum, e) => sum + e.coverage, 0) / details.perEngine.length)
-        : 0;
+      const totalPromptsTested = details.perEngine.reduce((sum, e) => sum + e.promptsTested, 0);
+      const totalPromptsVisible = details.perEngine.reduce((sum, e) => sum + e.promptsVisible, 0);
       
       let explanation: string;
       if (details.perEngine.length === 0) {
         explanation = `AI Visibility analysis in progress. Data collection may still be ongoing.`;
-      } else if (enginesWithVisibility === 0 && score === 0) {
-        explanation = `AI Visibility score of 0/100. No mentions detected across ${details.perEngine.length} engines. This may indicate low visibility or incomplete data collection.`;
+      } else if (enginesWithVisibility === 0 && score === 0 && totalPromptsTested > 0) {
+        // Clarify this is just the mention-based visibility component, not the total GEO score
+        explanation = `Mention-based visibility: 0/100. No brand mentions detected across ${details.perEngine.length} engines after testing ${totalPromptsTested} prompts. Note: Your total GEO score includes other factors (EEAT, citations, schema) beyond mentions.`;
+      } else if (score > 0) {
+        // Use the calculated score, not 0
+        explanation = `Mention-based visibility: ${score}/100 based on average coverage across ${details.perEngine.length} engines. ` +
+          `${enginesWithVisibility} engine${enginesWithVisibility !== 1 ? 's' : ''} show visibility, with ${totalPromptsVisible} of ${totalPromptsTested} prompts containing mentions.`;
       } else {
-        explanation = `AI Visibility score of ${score}/100 based on average coverage across ${details.perEngine.length} engines. ` +
-          `${enginesWithVisibility} engine${enginesWithVisibility !== 1 ? 's' : ''} show visibility, with an average of ${avgCoverageForExplanation}% prompt coverage.`;
+        explanation = `Mention-based visibility: ${score}/100. Analysis completed across ${details.perEngine.length} engines. Note: Your total GEO score includes other factors beyond mentions.`;
       }
 
       return {

@@ -346,7 +346,16 @@ export function extractAllBrandMentions(
     'provider', 'providers', 'vendor', 'vendors', 'supplier', 'suppliers',
     'solution', 'solutions', 'product', 'products', 'application', 'applications', 'app', 'apps',
     'software', 'system', 'systems', 'technology', 'technologies', 'tool', 'tools',
-    'marketplace', 'marketplaces', 'store', 'stores', 'shop', 'shops', 'retailer', 'retailers'
+    'marketplace', 'marketplaces', 'store', 'stores', 'shop', 'shops', 'retailer', 'retailers',
+    // Additional generic terms
+    'best online travel agencies', 'best online travel agency', 'online travel agencies', 'online travel agency',
+    'ota', 'otas', 'travel agency', 'travel agencies', 'travel agent', 'travel agents',
+    'source', 'sources', 'reference', 'references', 'link', 'links', 'url', 'urls',
+    'article', 'articles', 'blog', 'blogs', 'post', 'posts', 'page', 'pages',
+    'review', 'reviews', 'rating', 'ratings', 'feedback', 'testimonial', 'testimonials',
+    'guide', 'guides', 'tutorial', 'tutorials', 'help', 'support', 'faq', 'faqs',
+    'category', 'categories', 'type', 'types', 'kind', 'kinds', 'style', 'styles',
+    'option', 'options', 'choice', 'choices', 'alternative', 'alternatives', 'selection', 'selections'
   ]);
   
   // Match capitalized words/phrases that look like brand names
@@ -362,8 +371,25 @@ export function extractAllBrandMentions(
       continue;
     }
     
-    // Skip generic business/category terms
+    // Skip generic business/category terms (check full phrase and individual words)
     if (genericTerms.has(brandLower) || genericTerms.has(firstWord)) {
+      continue;
+    }
+    // Also check if the brand contains generic terms (e.g., "Best Online Travel Agencies")
+    const brandWords = brandLower.split(/\s+/);
+    if (brandWords.some(word => genericTerms.has(word)) || genericTerms.has(brandWords.join(' '))) {
+      continue;
+    }
+    // Skip if it's a generic phrase pattern (e.g., "Best X", "Top X", "Online X", "X Agencies", "X Services")
+    if (/^(best|top|leading|popular|famous|well-known|renowned|premium|luxury|budget|cheap|affordable|expensive|free|paid)\s+/i.test(brand)) {
+      continue;
+    }
+    // Skip if it ends with generic business terms (e.g., "X Agencies", "X Services", "X Platforms")
+    if (/\s+(agencies|agency|services|service|platforms|platform|companies|company|businesses|business|solutions|solution|providers|provider|vendors|vendor|suppliers|supplier|tools|tool|systems|system|applications|application|apps|app|websites|website|sites|site|stores|store|shops|shop|retailers|retailer|marketplaces|marketplace)$/i.test(brand)) {
+      continue;
+    }
+    // Skip single generic words that are too common
+    if (brandWords.length === 1 && genericTerms.has(brandLower)) {
       continue;
     }
     
