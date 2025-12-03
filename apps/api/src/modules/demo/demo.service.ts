@@ -2613,11 +2613,9 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         this.logger.warn(`[Instant Summary] No jobs found for instant summary pattern. Total jobs for workspace: ${anyJobsCount}`);
       }
       
-      const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
-      
-      this.logger.log(`[Instant Summary] Job counts: total=${totalJobs}, completed=${completedJobs}, progress=${progress}%`);
-      
-      // Also log status breakdown for debugging
+      // Count all job statuses for accurate progress calculation
+      let pendingJobs = 0;
+      let failedJobs = 0;
       if (totalJobs > 0) {
         const statusBreakdown = await this.prisma.$queryRaw<{ status: string; count: number }>(
           `SELECT pr."status", COUNT(*)::int as count
@@ -2630,9 +2628,26 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           promptIds.length > 0 ? [workspaceId, promptIds] : [workspaceId, `${workspaceId}:instant_summary:%`]
         );
         this.logger.log(`[Instant Summary] Status breakdown: ${JSON.stringify(statusBreakdown)}`);
+        
+        // Extract counts from status breakdown
+        (statusBreakdown as any[]).forEach(row => {
+          if (row.status === 'PENDING') pendingJobs = row.count;
+          if (row.status === 'FAILED') failedJobs = row.count;
+        });
       } else {
         this.logger.warn(`[Instant Summary] No jobs found at all for workspace ${workspaceId}. This might indicate jobs haven't been queued yet or there's a workspaceId mismatch.`);
       }
+      
+      // Calculate progress: completed / total (including pending)
+      const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
+      
+      // Status is complete only when all jobs are finished (SUCCESS or FAILED, no PENDING)
+      // Also consider it complete if we have some completed jobs and no pending jobs (all queued jobs have been processed)
+      const allJobsFinished = totalJobs > 0 && pendingJobs === 0;
+      const hasSomeData = completedJobs > 0 && totalJobs > 0;
+      
+      this.logger.log(`[Instant Summary] Job counts: total=${totalJobs}, completed=${completedJobs}, pending=${pendingJobs}, failed=${failedJobs}, progress=${progress}%`);
+      this.logger.log(`[Instant Summary] Status determination: allJobsFinished=${allJobsFinished}, hasSomeData=${hasSomeData}`);
 
       // Aggregate competitor, SOV, and citation data from completed jobs
       let competitors: any[] = [];
@@ -2659,8 +2674,23 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           this.logger.log(`[Instant Summary] Total mentions found in database: ${totalMentionsCount}`);
 
           // Detect competitors from mentions (brands mentioned that aren't the main brand)
-          // Lowered threshold from 2 to 1 to catch more competitors
-          const competitorRows = await this.prisma.$queryRaw<{
+          // Normalize brand names to base domain (without TLD) for comparison
+          // This prevents "airbnb.com" from being treated as a competitor to "Airbnb"
+          const normalizeBrandForComparison = (brandName: string): string => {
+            // Remove protocol, www, and TLD to get base brand name
+            const cleaned = brandName.toLowerCase()
+              .replace(/^https?:\/\//, '')
+              .replace(/^www\./, '')
+              .replace(/\.(com|net|org|io|co|ai|app|dev)$/, '');
+            return cleaned;
+          };
+          
+          const mainBrandNormalized = normalizeBrandForComparison(brand);
+          const mainBrandDomain = normalized.host.toLowerCase().replace(/^www\./, '');
+          const mainBrandBase = mainBrandDomain.split('.')[0];
+          
+          // Get all unique brands from mentions
+          const allBrandRows = await this.prisma.$queryRaw<{
             brand: string;
             mentions: number;
           }>(
@@ -2673,15 +2703,28 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
              JOIN "prompts" p ON p.id = pr."promptId"
              WHERE pr."workspaceId" = $1
                AND p.id = ANY($2::text[])
-               AND LOWER(m."brand") != LOWER($3)
                AND m."brand" IS NOT NULL
                AND m."brand" != ''
              GROUP BY m."brand"
-             HAVING COUNT(*) >= 1
-             ORDER BY COUNT(*) DESC
-             LIMIT 10`,
-            [workspaceId, promptRecords.map(p => p.id), brand]
+             ORDER BY COUNT(*) DESC`,
+            [workspaceId, promptRecords.map(p => p.id)]
           );
+          
+          // Filter out the main brand and its variations
+          const competitorRows = (allBrandRows as any[]).filter(row => {
+            const mentionBrand = row.brand;
+            const mentionNormalized = normalizeBrandForComparison(mentionBrand);
+            const mentionDomain = mentionBrand.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
+            const mentionBase = mentionDomain.split('.')[0];
+            
+            // Exclude if it matches the main brand in any form
+            if (mentionBrand.toLowerCase() === brand.toLowerCase()) return false;
+            if (mentionNormalized === mainBrandNormalized) return false;
+            if (mentionBase === mainBrandBase && mainBrandBase.length > 2) return false;
+            if (mentionDomain === mainBrandDomain) return false;
+            
+            return true;
+          }).slice(0, 10);
 
           this.logger.log(`[Instant Summary] Found ${(competitorRows as any[]).length} competitors after filtering`);
           if ((competitorRows as any[]).length > 0) {
@@ -2887,7 +2930,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         },
         eeatScore,
         engines: engines.map(e => ({ key: e.key, visible: e.visible })),
-        status: completedJobs === totalJobs && totalJobs > 0 ? 'analysis_complete' : 'analysis_running',
+        status: allJobsFinished || (hasSomeData && pendingJobs === 0) ? 'analysis_complete' : 'analysis_running',
         progress,
         totalJobs,
         completedJobs,
