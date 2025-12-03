@@ -2693,39 +2693,46 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           const mainBrandDomain = normalized.host.toLowerCase().replace(/^www\./, '');
           const mainBrandBase = mainBrandDomain.split('.')[0];
           
-          // Get all unique brands from mentions
+          // Get all unique brands from mentions, normalized to group variations together
           const allBrandRows = await this.prisma.$queryRaw<{
             brand: string;
+            canonicalBrand: string;
             mentions: number;
           }>(
-            `SELECT 
-               m."brand" as brand,
-               COUNT(*)::int as mentions
-             FROM "mentions" m
-             JOIN "answers" a ON a.id = m."answerId"
-             JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
-             JOIN "prompts" p ON p.id = pr."promptId"
-             WHERE pr."workspaceId" = $1
-               AND p.id = ANY($2::text[])
-               AND m."brand" IS NOT NULL
-               AND m."brand" != ''
-             GROUP BY m."brand"
-             ORDER BY COUNT(*) DESC`,
+            `WITH normalized_brands AS (
+              SELECT 
+                m."brand" as original_brand,
+                SPLIT_PART(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', ''), '.', 1) as base_brand,
+                ROW_NUMBER() OVER (PARTITION BY SPLIT_PART(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', ''), '.', 1) ORDER BY m."brand") as rn
+              FROM "mentions" m
+              JOIN "answers" a ON a.id = m."answerId"
+              JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+              JOIN "prompts" p ON p.id = pr."promptId"
+              WHERE pr."workspaceId" = $1
+                AND p.id = ANY($2::text[])
+                AND m."brand" IS NOT NULL
+                AND m."brand" != ''
+            )
+            SELECT 
+              base_brand as brand,
+              MAX(CASE WHEN rn = 1 THEN original_brand END) as "canonicalBrand",
+              COUNT(*)::int as mentions
+            FROM normalized_brands
+            GROUP BY base_brand
+            ORDER BY COUNT(*) DESC`,
             [workspaceId, promptRecords.map(p => p.id)]
           );
           
           // Filter out the main brand and its variations
+          // Use base_brand (already normalized) for comparison
           const competitorRows = (allBrandRows as any[]).filter(row => {
-            const mentionBrand = row.brand;
-            const mentionNormalized = normalizeBrandForComparison(mentionBrand);
-            const mentionDomain = mentionBrand.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '');
-            const mentionBase = mentionDomain.split('.')[0];
+            const mentionBase = row.brand.toLowerCase(); // This is already the base brand from SQL
+            const mentionCanonical = (row.canonicalBrand || row.brand).toLowerCase();
             
             // Exclude if it matches the main brand in any form
-            if (mentionBrand.toLowerCase() === brand.toLowerCase()) return false;
-            if (mentionNormalized === mainBrandNormalized) return false;
             if (mentionBase === mainBrandBase && mainBrandBase.length > 2) return false;
-            if (mentionDomain === mainBrandDomain) return false;
+            if (mentionCanonical === brand.toLowerCase()) return false;
+            if (normalizeBrandForComparison(mentionCanonical) === mainBrandNormalized) return false;
             
             return true;
           }).slice(0, 10);
@@ -2737,7 +2744,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
 
           // Transform competitors to match PremiumCompetitor interface expected by frontend
           competitors = await Promise.all((competitorRows as any[]).map(async (row) => {
-            const competitorBrand = row.brand;
+            const competitorBrand = row.canonicalBrand || row.brand; // Use canonical brand name for display
             
             // Get visibility per engine for this competitor (use searchEngines if available, otherwise default to common engines)
             const enginesToCheck = searchEngines.length > 0 ? searchEngines : ['PERPLEXITY', 'BRAVE', 'AIO'];
@@ -2805,44 +2812,66 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
           }));
 
           // Calculate Share of Voice from mentions
+          // Normalize brand names to group variations together (e.g., "Booking", "booking.com", "Booking.com" -> "booking")
+          // Use the original brand name (first occurrence) as the canonical name for display
           const sovRows = await this.prisma.$queryRaw<{
             brand: string;
+            canonicalBrand: string;
             mentions: number;
             positiveMentions: number;
             neutralMentions: number;
             negativeMentions: number;
           }>(
-            `SELECT 
-               m."brand" as brand,
-               COUNT(*)::int as mentions,
-               SUM(CASE WHEN m."sentiment" = 'POS' THEN 1 ELSE 0 END)::int as "positiveMentions",
-               SUM(CASE WHEN m."sentiment" = 'NEU' THEN 1 ELSE 0 END)::int as "neutralMentions",
-               SUM(CASE WHEN m."sentiment" = 'NEG' THEN 1 ELSE 0 END)::int as "negativeMentions"
-             FROM "mentions" m
-             JOIN "answers" a ON a.id = m."answerId"
-             JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
-             JOIN "prompts" p ON p.id = pr."promptId"
-             WHERE pr."workspaceId" = $1
-               AND p.id = ANY($2::text[])
-               AND m."brand" IS NOT NULL
-               AND m."brand" != ''
-             GROUP BY m."brand"
-             ORDER BY COUNT(*) DESC
-             LIMIT 10`,
+            `WITH normalized_brands AS (
+              SELECT 
+                m."brand" as original_brand,
+                LOWER(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', '')) as normalized,
+                SPLIT_PART(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', ''), '.', 1) as base_brand,
+                m."sentiment",
+                ROW_NUMBER() OVER (PARTITION BY LOWER(REPLACE(REPLACE(REPLACE(m."brand", 'https://', ''), 'http://', ''), 'www.', '')) ORDER BY m."brand") as rn
+              FROM "mentions" m
+              JOIN "answers" a ON a.id = m."answerId"
+              JOIN "prompt_runs" pr ON pr.id = a."promptRunId"
+              JOIN "prompts" p ON p.id = pr."promptId"
+              WHERE pr."workspaceId" = $1
+                AND p.id = ANY($2::text[])
+                AND m."brand" IS NOT NULL
+                AND m."brand" != ''
+            )
+            SELECT 
+              base_brand as brand,
+              MAX(CASE WHEN rn = 1 THEN original_brand END) as "canonicalBrand",
+              COUNT(*)::int as mentions,
+              SUM(CASE WHEN sentiment = 'POS' THEN 1 ELSE 0 END)::int as "positiveMentions",
+              SUM(CASE WHEN sentiment = 'NEU' THEN 1 ELSE 0 END)::int as "neutralMentions",
+              SUM(CASE WHEN sentiment = 'NEG' THEN 1 ELSE 0 END)::int as "negativeMentions"
+            FROM normalized_brands
+            GROUP BY base_brand
+            ORDER BY COUNT(*) DESC
+            LIMIT 10`,
             [workspaceId, promptRecords.map(p => p.id)]
           );
 
           const totalMentions = (sovRows as any[]).reduce((sum, row) => sum + (row.mentions || 0), 0);
           this.logger.log(`[Instant Summary] Found ${(sovRows as any[]).length} brands in SOV, total mentions: ${totalMentions}`);
           
-          shareOfVoice = (sovRows as any[]).map(row => ({
-            brand: row.brand,
-            mentions: row.mentions || 0,
-            positiveMentions: row.positiveMentions || 0,
-            neutralMentions: row.neutralMentions || 0,
-            negativeMentions: row.negativeMentions || 0,
-            sharePercentage: totalMentions > 0 ? Math.round(((row.mentions || 0) / totalMentions) * 100 * 100) / 100 : 0,
-          }));
+          // Normalize main brand for matching (same logic as in competitor detection)
+          const mainBrandBase = normalized.host.toLowerCase().replace(/^www\./, '').split('.')[0];
+          
+          shareOfVoice = (sovRows as any[]).map(row => {
+            // If this row matches the main brand (by base name), use the derived brand name for consistency
+            const rowBase = row.brand.toLowerCase();
+            const displayBrand = (rowBase === mainBrandBase) ? brand : (row.canonicalBrand || row.brand);
+            
+            return {
+              brand: displayBrand,
+              mentions: row.mentions || 0,
+              positiveMentions: row.positiveMentions || 0,
+              neutralMentions: row.neutralMentions || 0,
+              negativeMentions: row.negativeMentions || 0,
+              sharePercentage: totalMentions > 0 ? Math.round(((row.mentions || 0) / totalMentions) * 100 * 100) / 100 : 0,
+            };
+          });
 
           // Get citations from citations table
           const citationRows = await this.prisma.$queryRaw<{
