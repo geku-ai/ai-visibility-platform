@@ -7,7 +7,7 @@ import { Worker, Job } from 'bullmq';
 import { Pool } from 'pg';
 import { createProvider } from '@ai-visibility/providers';
 import { EngineKey } from '@ai-visibility/shared';
-import { extractMentions, extractCitations, classifySentiment } from '@ai-visibility/parser';
+import { extractMentions, extractAllBrandMentions, extractCitations, classifySentiment, Mention } from '@ai-visibility/parser';
 import { HallucinationDetectorService } from '@ai-visibility/geo';
 // @ts-ignore - Workspace package resolution
 import { prisma } from '@ai-visibility/db';
@@ -371,12 +371,41 @@ export class RunPromptWorker {
         minConfidence: 0.4, // Lower threshold to catch more mentions
       });
       
+      // Also extract ALL potential brand mentions from the text (not just the ones we're searching for)
+      // This helps find competitors and other brands mentioned in responses
+      const allBrandMentions = extractAllBrandMentions(result.answerText, brandsToSearch, {
+        minLength: 3,
+        contextWindow: 120,
+      });
+      
+      // Combine mentions, preferring the ones from extractMentions (higher confidence)
+      // Deduplicate by brand name and position
+      const mentionMap = new Map<string, Mention>();
+      for (const mention of mentions) {
+        const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
+        mentionMap.set(key, mention);
+      }
+      // Add all brand mentions that aren't duplicates
+      for (const mention of allBrandMentions) {
+        const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
+        if (!mentionMap.has(key)) {
+          mentionMap.set(key, mention);
+        }
+      }
+      const allMentions = Array.from(mentionMap.values());
+      
       // Log mention extraction results for debugging
-      if (mentions.length > 0) {
-        const foundBrands = [...new Set(mentions.map(m => m.brand))];
-        console.log(`[RunPromptWorker] Found ${mentions.length} mention(s) for brands: ${brandsToSearch.join(', ')}`);
+      if (allMentions.length > 0) {
+        const foundBrands = [...new Set(allMentions.map(m => m.brand))];
+        const mainBrandMentions = allMentions.filter(m => brandsToSearch.some(b => b.toLowerCase() === m.brand.toLowerCase()));
+        const competitorMentions = allMentions.filter(m => !brandsToSearch.some(b => b.toLowerCase() === m.brand.toLowerCase()));
+        console.log(`[RunPromptWorker] Found ${allMentions.length} total mention(s) (${mainBrandMentions.length} main brand, ${competitorMentions.length} competitors)`);
         console.log(`[RunPromptWorker] Mentioned brands in response: ${foundBrands.join(', ')}`);
-        console.log(`[RunPromptWorker] Brand confidence scores: ${mentions.map(m => `${m.brand}:${m.confidence.toFixed(2)}`).join(', ')}`);
+        if (competitorMentions.length > 0) {
+          const competitorBrands = [...new Set(competitorMentions.map(m => m.brand))];
+          console.log(`[RunPromptWorker] Competitor brands found: ${competitorBrands.join(', ')}`);
+        }
+        console.log(`[RunPromptWorker] Brand confidence scores: ${allMentions.map(m => `${m.brand}:${m.confidence.toFixed(2)}`).join(', ')}`);
       } else if (brandsToSearch.length > 0) {
         console.warn(`[RunPromptWorker] No mentions found in response (length: ${result.answerText.length} chars) for brands: ${brandsToSearch.join(', ')}`);
         // Log a sample of the response for debugging (first 500 chars to see more context)
@@ -404,9 +433,9 @@ export class RunPromptWorker {
         },
       });
 
-      // Create mentions
+      // Create mentions (use allMentions which includes competitors)
       let mentionsCreated = 0;
-      for (const mention of mentions) {
+      for (const mention of allMentions) {
         try {
           await prisma.mention.create({
             data: {

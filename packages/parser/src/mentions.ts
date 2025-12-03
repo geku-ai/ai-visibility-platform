@@ -289,6 +289,98 @@ function getWordIndexInText(text: string, wordIndex: number): number {
 }
 
 /**
+ * Extract all potential brand/company names from text (not just specific brands)
+ * This helps find competitors and other brands mentioned in responses
+ */
+export function extractAllBrandMentions(
+  text: string,
+  excludeBrands: string[] = [],
+  options: { minLength?: number; contextWindow?: number } = {}
+): Mention[] {
+  const { minLength = 3, contextWindow = 120 } = options;
+  const mentions: Mention[] = [];
+  const excludeSet = new Set(excludeBrands.map(b => b.toLowerCase()));
+  
+  // Pattern 1: Domain names (e.g., "vrbo.com", "booking.com")
+  const domainPattern = /\b([a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]\.(?:com|net|org|io|co|ai|app|dev|tv|me|us|uk|ca|au|de|fr|es|it|nl|se|no|dk|fi|pl|cz|hu|ro|gr|pt|ie|be|at|ch|lu|is|ee|lt|lv|sk|si|hr|bg|rs|mk|al|ba|me|md|ua|by|ge|am|az|kz|kg|tj|tm|uz|mn|vn|th|ph|id|my|sg|hk|tw|jp|kr|in|pk|bd|lk|np|mm|kh|la|bn|mo|mn|af|ir|iq|sa|ae|om|ye|kw|qa|bh|jo|lb|sy|il|ps|tr|cy|mt|gi|ad|mc|sm|va|li|fo|gl|ax|sj|bv|tf|hm|gs|pn|tk|nu|nf|cx|cc|aq|um|as|gu|mp|vi|pr|vg|ky|bm|tc|ms|fk|gg|je|im|io|ac|sh|pm|wf|yt|re|bl|mf|gp|mq|nc|pf|tf|gf|pm|yt|re|bl|mf|gp|mq|nc|pf|tf|gf))\b/gi;
+  let match;
+  while ((match = domainPattern.exec(text)) !== null) {
+    const brand = match[1];
+    const brandLower = brand.toLowerCase();
+    if (!excludeSet.has(brandLower) && brand.length >= minLength) {
+      const index = match.index;
+      const snippet = extractSnippet(text, index, contextWindow);
+      mentions.push({
+        brand,
+        position: getPositionInList(text, index),
+        sentiment: analyzeSentiment(snippet),
+        snippet,
+        confidence: 0.8, // High confidence for domain names
+      });
+    }
+  }
+  
+  // Pattern 2: Capitalized brand names (e.g., "Vrbo", "Booking", "Expedia")
+  // Look for capitalized words that appear to be brand names (not common words)
+  const commonWords = new Set([
+    'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by',
+    'from', 'as', 'is', 'was', 'are', 'were', 'been', 'be', 'have', 'has', 'had', 'do', 'does', 'did',
+    'will', 'would', 'could', 'should', 'may', 'might', 'must', 'can', 'this', 'that', 'these', 'those',
+    'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which', 'who', 'when', 'where', 'why', 'how',
+    'all', 'each', 'every', 'some', 'any', 'no', 'many', 'much', 'more', 'most', 'few', 'little', 'less', 'least',
+    'one', 'two', 'three', 'first', 'second', 'third', 'last', 'next', 'previous', 'other', 'another',
+    'here', 'there', 'where', 'everywhere', 'somewhere', 'nowhere', 'anywhere',
+    'today', 'yesterday', 'tomorrow', 'now', 'then', 'when', 'before', 'after', 'during', 'while',
+    'about', 'above', 'across', 'after', 'against', 'along', 'among', 'around', 'before', 'behind', 'below',
+    'beneath', 'beside', 'between', 'beyond', 'during', 'except', 'inside', 'outside', 'through', 'throughout',
+    'under', 'underneath', 'until', 'upon', 'within', 'without'
+  ]);
+  
+  // Match capitalized words/phrases that look like brand names
+  // Pattern: Start of sentence or after punctuation, followed by capitalized word(s)
+  const brandNamePattern = /(?:^|[.!?;:\-–—\s])([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:\.[a-z]+)?)(?=\s|$|[.!?;:\-–—,])/g;
+  while ((match = brandNamePattern.exec(text)) !== null) {
+    const brand = match[1].trim();
+    const brandLower = brand.toLowerCase();
+    const firstWord = brand.split(/\s+/)[0].toLowerCase();
+    
+    // Skip if it's a common word, excluded brand, or too short
+    if (excludeSet.has(brandLower) || commonWords.has(firstWord) || brand.length < minLength) {
+      continue;
+    }
+    
+    // Skip if it looks like a sentence start (common words at start)
+    if (commonWords.has(firstWord)) {
+      continue;
+    }
+    
+    // Skip if it's a date, number, or other non-brand pattern
+    if (/^\d+/.test(brand) || /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)/i.test(brand)) {
+      continue;
+    }
+    
+    const index = match.index + (match[0].length - brand.length);
+    const snippet = extractSnippet(text, index, contextWindow);
+    
+    // Check if this brand was already found (avoid duplicates)
+    const existing = mentions.find(m => m.brand.toLowerCase() === brandLower && 
+      Math.abs((m.position || 0) - (getPositionInList(text, index) || 0)) < 10);
+    if (!existing) {
+      mentions.push({
+        brand,
+        position: getPositionInList(text, index),
+        sentiment: analyzeSentiment(snippet),
+        snippet,
+        confidence: 0.6, // Medium confidence for capitalized words
+      });
+    }
+  }
+  
+  // Remove duplicates and sort by position
+  return deduplicateMentions(mentions).sort((a, b) => (a.position || 0) - (b.position || 0));
+}
+
+/**
  * Analyze sentiment of snippet
  */
 function analyzeSentiment(snippet: string): Sentiment {

@@ -2641,13 +2641,17 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       // Calculate progress: completed / total (including pending)
       const progress = totalJobs > 0 ? Math.round((completedJobs / totalJobs) * 100) : 0;
       
-      // Status is complete only when all jobs are finished (SUCCESS or FAILED, no PENDING)
-      // Also consider it complete if we have some completed jobs and no pending jobs (all queued jobs have been processed)
+      // Status is complete when:
+      // 1. All jobs are finished (SUCCESS or FAILED, no PENDING), OR
+      // 2. We have enough completed jobs (>80%) and some data, OR
+      // 3. We have some data and no pending jobs (all queued jobs have been processed)
       const allJobsFinished = totalJobs > 0 && pendingJobs === 0;
+      const hasEnoughData = totalJobs > 0 && completedJobs > 0 && (completedJobs / totalJobs) >= 0.8;
       const hasSomeData = completedJobs > 0 && totalJobs > 0;
+      const isComplete = allJobsFinished || (hasEnoughData && hasSomeData) || (hasSomeData && pendingJobs === 0);
       
       this.logger.log(`[Instant Summary] Job counts: total=${totalJobs}, completed=${completedJobs}, pending=${pendingJobs}, failed=${failedJobs}, progress=${progress}%`);
-      this.logger.log(`[Instant Summary] Status determination: allJobsFinished=${allJobsFinished}, hasSomeData=${hasSomeData}`);
+      this.logger.log(`[Instant Summary] Status determination: allJobsFinished=${allJobsFinished}, hasEnoughData=${hasEnoughData}, hasSomeData=${hasSomeData}, isComplete=${isComplete}`);
 
       // Aggregate competitor, SOV, and citation data from completed jobs
       let competitors: any[] = [];
@@ -2930,7 +2934,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
         },
         eeatScore,
         engines: engines.map(e => ({ key: e.key, visible: e.visible })),
-        status: allJobsFinished || (hasSomeData && pendingJobs === 0) ? 'analysis_complete' : 'analysis_running',
+        status: isComplete ? 'analysis_complete' : 'analysis_running',
         progress,
         totalJobs,
         completedJobs,
