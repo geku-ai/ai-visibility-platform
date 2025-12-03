@@ -7,7 +7,8 @@ export class WorkspaceAccessGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
-    const workspaceId = request.params.workspaceId || request.headers['x-workspace-id'];
+    // Check for workspaceId in multiple places: params (GET), body (POST), headers
+    const workspaceId = request.params.workspaceId || request.body?.workspaceId || request.headers['x-workspace-id'];
     // JWT payload has 'sub' or 'userId', not 'id'
     const userId = request.user?.sub || request.user?.userId || request.user?.id || request.headers['x-user-id'];
 
@@ -16,6 +17,8 @@ export class WorkspaceAccessGuard implements CanActivate {
         workspaceId,
         userId,
         userObject: request.user,
+        requestBody: request.body,
+        requestParams: request.params,
       });
       return false;
     }

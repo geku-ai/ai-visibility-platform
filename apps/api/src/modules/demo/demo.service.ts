@@ -162,7 +162,7 @@ export class DemoService {
     const brand = (payload.brand ?? this.deriveBrandFromHost(normalized.host)).trim();
     const workspaceId = this.generateWorkspaceId(normalized.host);
 
-    await this.ensureWorkspace(workspaceId, brand);
+    await this.ensureWorkspace(workspaceId, brand, normalized.href);
 
     const summaryResult = await this.generateSummary(workspaceId, normalized.href, brand, payload.summaryOverride);
     await this.upsertWorkspaceProfile(workspaceId, brand, summaryResult.summary);
@@ -1164,14 +1164,21 @@ export class DemoService {
     return `demo_${safeHost || randomUUID()}`;
   }
 
-  private async ensureWorkspace(workspaceId: string, name: string): Promise<void> {
+  private async ensureWorkspace(workspaceId: string, name: string, domain?: string): Promise<void> {
     // Create workspace with onboarding defaults
     // Demo workspaces use 'instant_summary' entry type since they're created from the free funnel
+    // Also set brandName and primaryDomain if provided (for mention extraction in workers)
+    const brandName = name || null;
+    const primaryDomain = domain || null;
+    
     await this.prisma.$executeRaw(
-      `INSERT INTO "workspaces" ("id", "name", "tier", "onboardingStatus", "onboardingEntryType", "createdAt")
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       ON CONFLICT ("id") DO UPDATE SET "name" = EXCLUDED."name"`,
-      [workspaceId, name, 'INSIGHTS', 'not_started', 'instant_summary']
+      `INSERT INTO "workspaces" ("id", "name", "tier", "onboardingStatus", "onboardingEntryType", "brandName", "primaryDomain", "createdAt")
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT ("id") DO UPDATE SET
+         "name" = COALESCE(EXCLUDED."name", "workspaces"."name"),
+         "brandName" = COALESCE(EXCLUDED."brandName", "workspaces"."brandName"),
+         "primaryDomain" = COALESCE(EXCLUDED."primaryDomain", "workspaces"."primaryDomain")`,
+      [workspaceId, name, 'INSIGHTS', 'not_started', 'instant_summary', brandName, primaryDomain]
     );
   }
 
@@ -1786,7 +1793,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
     const brand = this.deriveBrandFromHost(normalized.host);
     const workspaceId = this.generateWorkspaceId(normalized.host);
     
-    await this.ensureWorkspace(workspaceId, brand);
+    await this.ensureWorkspace(workspaceId, brand, normalized.href);
 
     const allEvidence: any[] = [];
     const allWarnings: string[] = [];
@@ -2187,7 +2194,8 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
     const brand = this.deriveBrandFromHost(normalized.host);
     const workspaceId = this.generateWorkspaceId(normalized.host);
 
-    await this.ensureWorkspace(workspaceId, brand);
+    // Ensure workspace exists with brandName and primaryDomain set (for mention extraction)
+    await this.ensureWorkspace(workspaceId, brand, normalized.href);
 
     try {
       // Step 1: Industry Detection (with fallback)
@@ -2975,7 +2983,7 @@ Return a JSON array of 3 to 6 competitor domains (only the domain, e.g., "paypal
       const workspaceId = this.generateWorkspaceId(normalized.host);
       
       // Ensure workspace exists
-      await this.ensureWorkspace(workspaceId, brandName);
+      await this.ensureWorkspace(workspaceId, brandName, normalized.href);
 
       // Call orchestrator with all intelligence steps
       const intelligence = await this.orchestrator.orchestrateIntelligence(
