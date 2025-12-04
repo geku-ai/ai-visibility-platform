@@ -445,7 +445,7 @@ export class RunPromptWorker {
           let structuredExtraction: any = null;
           let extractionAttempted = false;
           const providers = [
-            { key: 'ANTHROPIC', envKey: 'ANTHROPIC_API_KEY', model: model === 'gpt-4o' ? 'claude-sonnet' : 'claude-haiku', name: 'Anthropic' },
+            { key: 'ANTHROPIC', envKey: 'ANTHROPIC_API_KEY', model: model === 'gpt-4o' ? 'claude-3-5-sonnet-20241022' : 'claude-3-haiku-20240307', name: 'Anthropic' },
             { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
             { key: 'GEMINI', envKey: 'GEMINI_API_KEY', model: 'gemini-pro', name: 'Gemini' },
           ];
