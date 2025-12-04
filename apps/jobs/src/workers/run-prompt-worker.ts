@@ -514,9 +514,12 @@ export class RunPromptWorker {
                     // Check if provider has query() method (LLM providers) or ask() method (search providers)
                     if (typeof (extractionProvider as any).query === 'function') {
                       // LLM provider - use query() and normalize response
+                      // Reduce max_tokens for Anthropic to avoid rate limits (10k tokens/min)
+                      const maxTokens = providerConfig.key === 'ANTHROPIC' ? 2000 : undefined;
                       const llmResponse = await (extractionProvider as any).query(extractionPrompt, {
                         model: extractionModel,
                         temperature: 0.3,
+                        maxTokens: maxTokens,
                       });
                       // Normalize LLM response to match ask() format
                       return { answerText: llmResponse.content || llmResponse.answer || '' };
@@ -570,6 +573,13 @@ export class RunPromptWorker {
               } catch (modelError) {
                 const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
                 const is404 = errorMsg.includes('404') || errorMsg.includes('not found') || errorMsg.includes('not_found');
+                const isRateLimit = errorMsg.includes('429') || errorMsg.includes('rate_limit') || errorMsg.includes('rate limit');
+                
+                // If rate limited, skip to next provider (don't retry same model)
+                if (isRateLimit) {
+                  console.warn(`[RunPromptWorker] Rate limited for ${providerConfig.name} (${modelToTry}), trying next provider`);
+                  break; // Exit model loop, try next provider
+                }
                 
                 if (is404 && modelsToTry.indexOf(modelToTry) < modelsToTry.length - 1) {
                   // 404 error and more fallback models available - try next model

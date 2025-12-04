@@ -95,17 +95,7 @@ export class LLMStructuredExtractionService {
     } catch (error) {
       console.error('[LLMStructuredExtraction] Failed to extract structured data:', error);
       // Fallback: return empty extraction
-      return {
-        mentions: [],
-        competitors: [],
-        insights: [],
-        metadata: {
-          extractionModel: model,
-          extractionTimestamp: new Date().toISOString(),
-          confidence: 0.0,
-          source: 'fresh',
-        },
-      };
+      return this.getEmptyExtraction();
     }
   }
 
@@ -117,100 +107,100 @@ export class LLMStructuredExtractionService {
     promptText: string,
     brandsToSearch: string[]
   ): string {
-    return `You are an expert data extraction system. Extract structured information from the following AI response.
+    // Truncate response text if too long to avoid token limits
+    const maxResponseLength = 3000;
+    const truncatedResponse = responseText.length > maxResponseLength 
+      ? responseText.substring(0, maxResponseLength) + '...'
+      : responseText;
 
-Original Prompt: ${promptText}
+    return `Extract structured data from this AI response. Return ONLY valid JSON, no markdown, no code blocks, no explanations.
+
+Original Prompt: ${promptText.substring(0, 500)}
 
 AI Response:
-${responseText}
+${truncatedResponse}
 
-Brands to specifically look for: ${brandsToSearch.join(', ') || 'all brands mentioned'}
+Brands to find: ${brandsToSearch.join(', ') || 'all brands'}
 
-Extract the following information:
-1. **Mentions**: All brand mentions found in the response, including:
-   - brand: The exact brand name as mentioned
-   - canonicalBrand: Normalized brand name (e.g., "booking.com" -> "Booking")
-   - context: Surrounding text/sentence where the brand is mentioned
-   - sentiment: "positive", "neutral", or "negative"
-   - relationship: "direct_competitor", "indirect_competitor", "partner", "supplier", or "other"
-   - comparison: Any comparison made with the brand (if applicable)
-   - confidence: Confidence score 0.0-1.0
-   - position: Character position in text (if determinable)
-   - snippet: A relevant snippet of text (50-100 chars)
+Extract:
+1. Mentions: All brand mentions with brand, canonicalBrand, context, sentiment (positive/neutral/negative), relationship (direct_competitor/indirect_competitor/partner/supplier/other), comparison (if any), confidence (0.0-1.0), position, snippet
+2. Competitors: Competitor brands with brand, relationship (direct_competitor/indirect_competitor), mentionCount, contexts array, confidence (0.0-1.0)
+3. Insights: Array of insight strings
 
-2. **Competitors**: Brands that are competitors (direct or indirect):
-   - brand: Competitor brand name
-   - relationship: "direct_competitor" or "indirect_competitor"
-   - mentionCount: Number of times mentioned
-   - contexts: Array of context strings where mentioned
-   - confidence: Confidence score 0.0-1.0
+Return this JSON structure only:
+{"mentions":[{"brand":"string","canonicalBrand":"string","context":"string","sentiment":"positive|neutral|negative","relationship":"direct_competitor|indirect_competitor|partner|supplier|other|null","comparison":"string|null","confidence":0.0-1.0,"position":number|null,"snippet":"string|null"}],"competitors":[{"brand":"string","relationship":"direct_competitor|indirect_competitor","mentionCount":number,"contexts":["string"],"confidence":0.0-1.0}],"insights":["string"]}
 
-3. **Insights**: Key insights, patterns, or observations from the response (array of strings)
-
-Return ONLY valid JSON in this exact format:
-{
-  "mentions": [
-    {
-      "brand": "string",
-      "canonicalBrand": "string",
-      "context": "string",
-      "sentiment": "positive" | "neutral" | "negative",
-      "relationship": "direct_competitor" | "indirect_competitor" | "partner" | "supplier" | "other" | null,
-      "comparison": "string" | null,
-      "confidence": 0.0-1.0,
-      "position": number | null,
-      "snippet": "string" | null
-    }
-  ],
-  "competitors": [
-    {
-      "brand": "string",
-      "relationship": "direct_competitor" | "indirect_competitor",
-      "mentionCount": number,
-      "contexts": ["string"],
-      "confidence": 0.0-1.0
-    }
-  ],
-  "insights": ["string"]
-}
-
-Return ONLY the JSON object, no markdown, no code blocks, no explanations.`;
+JSON only, no other text.`;
   }
 
   /**
    * Parse LLM extraction response
    */
   private parseExtractionResponse(llmResponse: string): StructuredExtraction {
+    if (!llmResponse || typeof llmResponse !== 'string') {
+      console.warn('[LLMStructuredExtraction] Empty or invalid response');
+      return this.getEmptyExtraction();
+    }
+
+    // Clean the response
+    let cleaned = llmResponse.trim();
+    
+    // Remove markdown code blocks if present
+    cleaned = cleaned.replace(/```json\s*/g, '').replace(/```\s*/g, '');
+    
+    // Try to find JSON object in the response
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      cleaned = jsonMatch[0];
+    }
+
     try {
       // Try to parse as JSON
-      const parsed = JSON.parse(llmResponse);
+      const parsed = JSON.parse(cleaned);
       return this.validateAndNormalize(parsed);
     } catch (error) {
-      // If not JSON, try to extract JSON from markdown code blocks
-      const jsonMatch = llmResponse.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-      if (jsonMatch) {
-        try {
-          const parsed = JSON.parse(jsonMatch[1]);
-          return this.validateAndNormalize(parsed);
-        } catch (e) {
-          console.error('[LLMStructuredExtraction] Failed to parse JSON from code block:', e);
-        }
-      }
+      // Log the actual response for debugging (first 500 chars)
+      const preview = cleaned.substring(0, 500);
+      console.error('[LLMStructuredExtraction] Failed to parse JSON. Response preview:', preview);
+      console.error('[LLMStructuredExtraction] Parse error:', error instanceof Error ? error.message : String(error));
       
-      // Fallback: return empty extraction
-      console.warn('[LLMStructuredExtraction] Failed to parse LLM response, returning empty extraction');
-      return {
-        mentions: [],
-        competitors: [],
-        insights: [],
-        metadata: {
-          extractionModel: 'unknown',
-          extractionTimestamp: new Date().toISOString(),
-          confidence: 0.0,
-          source: 'fresh',
-        },
-      };
+      // Try one more time with more aggressive cleaning
+      try {
+        // Remove any text before first {
+        const firstBrace = cleaned.indexOf('{');
+        if (firstBrace > 0) {
+          cleaned = cleaned.substring(firstBrace);
+        }
+        // Remove any text after last }
+        const lastBrace = cleaned.lastIndexOf('}');
+        if (lastBrace > 0 && lastBrace < cleaned.length - 1) {
+          cleaned = cleaned.substring(0, lastBrace + 1);
+        }
+        
+        const parsed = JSON.parse(cleaned);
+        return this.validateAndNormalize(parsed);
+      } catch (e2) {
+        console.warn('[LLMStructuredExtraction] Failed to parse LLM response after cleaning, returning empty extraction');
+        return this.getEmptyExtraction();
+      }
     }
+  }
+
+  /**
+   * Get empty extraction structure
+   */
+  private getEmptyExtraction(): StructuredExtraction {
+    return {
+      mentions: [],
+      competitors: [],
+      insights: [],
+      metadata: {
+        extractionModel: 'unknown',
+        extractionTimestamp: new Date().toISOString(),
+        confidence: 0.0,
+        source: 'fresh',
+      },
+    };
   }
 
   /**
