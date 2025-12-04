@@ -447,7 +447,7 @@ export class RunPromptWorker {
           const providers = [
             { key: 'ANTHROPIC', envKey: 'ANTHROPIC_API_KEY', model: model === 'gpt-4o' ? 'claude-3-5-sonnet-20240620' : 'claude-3-haiku-20240307', name: 'Anthropic' },
             { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
-            { key: 'GEMINI', envKey: 'GEMINI_API_KEY', model: 'gemini-pro', name: 'Gemini' },
+            { key: 'GEMINI', envKey: 'GEMINI_API_KEY', model: 'gemini-1.5-pro', name: 'Gemini' },
           ];
           
           for (const providerConfig of providers) {
