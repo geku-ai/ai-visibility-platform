@@ -441,12 +441,12 @@ export class RunPromptWorker {
           const model = complexityAnalysis.complexity === ExtractionComplexity.COMPLEX ? 'gpt-4o' : 'gpt-4o-mini';
           console.log(`[RunPromptWorker] Using LLM structured extraction (${model}, cost: $${complexityAnalysis.estimatedCost.toFixed(4)})`);
           
-          // Try LLM extraction with multiple providers (OpenAI → Anthropic → Gemini → rule-based)
+          // Try LLM extraction with multiple providers (Anthropic → OpenAI → Gemini → rule-based)
           let structuredExtraction: any = null;
           let extractionAttempted = false;
           const providers = [
-            { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
             { key: 'ANTHROPIC', envKey: 'ANTHROPIC_API_KEY', model: model === 'gpt-4o' ? 'claude-sonnet' : 'claude-haiku', name: 'Anthropic' },
+            { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
             { key: 'GEMINI', envKey: 'GEMINI_API_KEY', model: 'gemini-pro', name: 'Gemini' },
           ];
           
