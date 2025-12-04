@@ -450,13 +450,14 @@ export class RunPromptWorker {
           let extractionAttempted = false;
           
           // Determine Anthropic model with fallbacks
+          // Use model names without dates for stability (Anthropic supports both)
           const getAnthropicModel = (): string => {
             if (model === 'gpt-4o') {
-              // Complex: Try 3.7 Sonnet, fallback to 3.5 Sonnet
-              return process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet-20240620'; // Using 3.5 as 3.7 IDs not confirmed
+              // Complex: Try Claude 3.5 Sonnet (stable name), fallback to 3.0 Sonnet
+              return process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet';
             } else {
-              // Medium: Try 3.7 Haiku, fallback to 3 Haiku
-              return process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-haiku-20240307';
+              // Medium: Use Claude 3 Haiku (stable name)
+              return process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-haiku';
             }
           };
           
@@ -472,8 +473,8 @@ export class RunPromptWorker {
               model: getAnthropicModel(), 
               name: 'Anthropic',
               fallbackModels: model === 'gpt-4o' 
-                ? ['claude-3-5-sonnet-20240620', 'claude-3-sonnet-20240229'] 
-                : ['claude-3-haiku-20240307']
+                ? ['claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229', 'claude-3-sonnet'] 
+                : ['claude-3-haiku-20240307', 'claude-3-haiku']
             },
             { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
             { 
@@ -535,8 +536,22 @@ export class RunPromptWorker {
                   }
                 );
                 
-                console.log(`[RunPromptWorker] ✅ Successfully extracted with ${providerConfig.name} (${modelToTry})`);
-                break; // Success - exit both loops
+                // Validate extraction result - must have at least mentions array
+                if (structuredExtraction && Array.isArray(structuredExtraction.mentions)) {
+                  const mentionCount = structuredExtraction.mentions.length;
+                  const competitorCount = structuredExtraction.competitors?.length || 0;
+                  console.log(`[RunPromptWorker] ✅ Successfully extracted with ${providerConfig.name} (${modelToTry}): ${mentionCount} mentions, ${competitorCount} competitors`);
+                  break; // Success - exit both loops
+                } else {
+                  // Invalid extraction result - treat as failure and try next model/provider
+                  console.warn(`[RunPromptWorker] ⚠️ ${providerConfig.name} (${modelToTry}) returned invalid extraction result, trying fallback...`);
+                  structuredExtraction = null; // Reset to null so we try next model
+                  if (modelsToTry.indexOf(modelToTry) < modelsToTry.length - 1) {
+                    continue; // Try next fallback model
+                  } else {
+                    break; // No more fallback models, try next provider
+                  }
+                }
                 
               } catch (modelError) {
                 const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
@@ -594,6 +609,10 @@ export class RunPromptWorker {
           } else {
             // LLM extraction succeeded - convert to Mention[] format
             try {
+              // Validate extraction has valid structure
+              if (!structuredExtraction || !Array.isArray(structuredExtraction.mentions)) {
+                throw new Error('Invalid extraction result structure');
+              }
             
               // Convert structured extraction to Mention[] format
               const mapSentiment = (sentiment: string): Sentiment => {
@@ -602,24 +621,28 @@ export class RunPromptWorker {
                 return Sentiment.NEU;
               };
               
-              allMentions = structuredExtraction.mentions.map((m) => ({
+              allMentions = (structuredExtraction.mentions || []).map((m) => ({
                 brand: m.brand,
                 position: m.position,
                 confidence: m.confidence,
-                snippet: m.snippet || m.context.substring(0, 200) || '',
-                sentiment: mapSentiment(m.sentiment),
+                snippet: m.snippet || m.context?.substring(0, 200) || '',
+                sentiment: mapSentiment(m.sentiment || 'neutral'),
               } as Mention));
               
               // Add competitor mentions
-              for (const competitor of structuredExtraction.competitors) {
-                for (const context of competitor.contexts) {
-                  allMentions.push({
-                    brand: competitor.brand,
-                    position: undefined,
-                    confidence: competitor.confidence,
-                    snippet: context.substring(0, 200) || '',
-                    sentiment: Sentiment.NEU, // Default to neutral for competitors
-                  } as Mention);
+              if (Array.isArray(structuredExtraction.competitors)) {
+                for (const competitor of structuredExtraction.competitors) {
+                  if (competitor.contexts && Array.isArray(competitor.contexts)) {
+                    for (const context of competitor.contexts) {
+                      allMentions.push({
+                        brand: competitor.brand,
+                        position: undefined,
+                        confidence: competitor.confidence || 0.5,
+                        snippet: context.substring(0, 200) || '',
+                        sentiment: Sentiment.NEU, // Default to neutral for competitors
+                      } as Mention);
+                    }
+                  }
                 }
               }
               
@@ -627,7 +650,20 @@ export class RunPromptWorker {
               citations = extractCitations(result.answerText, {});
               sentiment = classifySentiment(result.answerText);
               
-              console.log(`[RunPromptWorker] LLM extraction found ${allMentions.length} mentions, ${structuredExtraction.competitors.length} competitors, ${structuredExtraction.insights.length} insights`);
+              const competitorCount = structuredExtraction.competitors?.length || 0;
+              const insightCount = structuredExtraction.insights?.length || 0;
+              console.log(`[RunPromptWorker] LLM extraction found ${allMentions.length} mentions, ${competitorCount} competitors, ${insightCount} insights`);
+              
+              // If LLM extraction found no mentions but brands exist in text, fall back to rule-based
+              if (allMentions.length === 0 && brandsToSearch.length > 0) {
+                const brandInText = brandsToSearch.some(brand => 
+                  result.answerText.toLowerCase().includes(brand.toLowerCase())
+                );
+                if (brandInText) {
+                  console.warn(`[RunPromptWorker] LLM extraction found 0 mentions but brands exist in text, falling back to rule-based extraction`);
+                  throw new Error('LLM extraction returned empty results despite brands in text');
+                }
+              }
             } catch (conversionError) {
               console.error(`[RunPromptWorker] Failed to convert LLM extraction results, falling back to rule-based:`, conversionError);
               // Fallback to rule-based extraction
