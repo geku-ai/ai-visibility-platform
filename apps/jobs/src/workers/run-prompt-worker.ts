@@ -441,74 +441,65 @@ export class RunPromptWorker {
           const model = complexityAnalysis.complexity === ExtractionComplexity.COMPLEX ? 'gpt-4o' : 'gpt-4o-mini';
           console.log(`[RunPromptWorker] Using LLM structured extraction (${model}, cost: $${complexityAnalysis.estimatedCost.toFixed(4)})`);
           
-          try {
-            // Create extraction provider (prefer OpenAI, fallback to Anthropic)
-            let extractionProvider: any = null;
-            const openaiKey = process.env.OPENAI_API_KEY;
-            const anthropicKey = process.env.ANTHROPIC_API_KEY;
+          // Try LLM extraction with multiple providers (OpenAI → Anthropic → Gemini → rule-based)
+          let structuredExtraction: any = null;
+          let extractionAttempted = false;
+          const providers = [
+            { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
+            { key: 'ANTHROPIC', envKey: 'ANTHROPIC_API_KEY', model: model === 'gpt-4o' ? 'claude-sonnet' : 'claude-haiku', name: 'Anthropic' },
+            { key: 'GEMINI', envKey: 'GEMINI_API_KEY', model: 'gemini-pro', name: 'Gemini' },
+          ];
+          
+          for (const providerConfig of providers) {
+            const apiKey = process.env[providerConfig.envKey];
             
-            if (openaiKey && openaiKey.trim().length >= 10) {
-              extractionProvider = createProvider('OPENAI' as EngineKey, { apiKey: openaiKey });
-              extractionModel = model;
-            } else if (anthropicKey && anthropicKey.trim().length >= 10) {
-              extractionProvider = createProvider('ANTHROPIC' as EngineKey, { apiKey: anthropicKey });
-              extractionModel = model === 'gpt-4o' ? 'claude-sonnet' : 'claude-haiku';
+            if (!apiKey || apiKey.trim().length < 10) {
+              console.log(`[RunPromptWorker] ${providerConfig.name} not available (missing or invalid API key)`);
+              continue;
+            }
+            
+            try {
+              console.log(`[RunPromptWorker] Attempting LLM extraction with ${providerConfig.name} (${providerConfig.model})`);
+              extractionAttempted = true;
+              
+              const extractionProvider = createProvider(providerConfig.key as EngineKey, { apiKey });
+              extractionModel = providerConfig.model;
+              
+              // Perform LLM structured extraction
+              structuredExtraction = await this.llmExtractionService.extract(
+                result.answerText,
+                prompt.text,
+                async (extractionPrompt: string) => {
+                  const extractionResult = await extractionProvider.ask(extractionPrompt);
+                  return { answerText: extractionResult.answerText };
+                },
+                {
+                  model: extractionModel as any,
+                  brandsToSearch,
+                  minConfidence: 0.5,
+                  includeInsights: true,
+                }
+              );
+              
+              console.log(`[RunPromptWorker] ✅ Successfully extracted with ${providerConfig.name}`);
+              break; // Success - exit loop
+              
+            } catch (providerError) {
+              const errorMsg = providerError instanceof Error ? providerError.message : String(providerError);
+              console.warn(`[RunPromptWorker] ❌ ${providerConfig.name} extraction failed: ${errorMsg}`);
+              // Continue to next provider
+              continue;
+            }
+          }
+          
+          // If all LLM providers failed, fall back to rule-based
+          if (!structuredExtraction) {
+            if (extractionAttempted) {
+              console.warn(`[RunPromptWorker] All LLM providers failed, falling back to rule-based extraction`);
             } else {
-              console.warn(`[RunPromptWorker] No LLM provider available for extraction, falling back to rule-based`);
-              throw new Error('No LLM provider available');
+              console.warn(`[RunPromptWorker] No LLM providers available, using rule-based extraction`);
             }
             
-            // Perform LLM structured extraction
-            const structuredExtraction = await this.llmExtractionService.extract(
-              result.answerText,
-              prompt.text,
-              async (extractionPrompt: string) => {
-                const extractionResult = await extractionProvider.ask(extractionPrompt);
-                return { answerText: extractionResult.answerText };
-              },
-              {
-                model: extractionModel as any,
-                brandsToSearch,
-                minConfidence: 0.5,
-                includeInsights: true,
-              }
-            );
-            
-            // Convert structured extraction to Mention[] format
-            const mapSentiment = (sentiment: string): Sentiment => {
-              if (sentiment === 'positive') return Sentiment.POS;
-              if (sentiment === 'negative') return Sentiment.NEG;
-              return Sentiment.NEU;
-            };
-            
-            allMentions = structuredExtraction.mentions.map((m) => ({
-              brand: m.brand,
-              position: m.position,
-              confidence: m.confidence,
-              snippet: m.snippet || m.context.substring(0, 200) || '',
-              sentiment: mapSentiment(m.sentiment),
-            } as Mention));
-            
-            // Add competitor mentions
-            for (const competitor of structuredExtraction.competitors) {
-              for (const context of competitor.contexts) {
-                allMentions.push({
-                  brand: competitor.brand,
-                  position: undefined,
-                  confidence: competitor.confidence,
-                  snippet: context.substring(0, 200) || '',
-                  sentiment: Sentiment.NEU, // Default to neutral for competitors
-                } as Mention);
-              }
-            }
-            
-            // Extract citations and sentiment (still use rule-based for these)
-            citations = extractCitations(result.answerText, {});
-            sentiment = classifySentiment(result.answerText);
-            
-            console.log(`[RunPromptWorker] LLM extraction found ${allMentions.length} mentions, ${structuredExtraction.competitors.length} competitors, ${structuredExtraction.insights.length} insights`);
-          } catch (llmError) {
-            console.warn(`[RunPromptWorker] LLM extraction failed, falling back to rule-based:`, llmError);
             // Fallback to rule-based extraction
             const mentions = extractMentions(result.answerText, brandsToSearch, {
               minConfidence: 0.4,
@@ -532,6 +523,69 @@ export class RunPromptWorker {
             citations = extractCitations(result.answerText, {});
             sentiment = classifySentiment(result.answerText);
             extractionModel = 'rule-based-fallback';
+          } else {
+            // LLM extraction succeeded - convert to Mention[] format
+            try {
+            
+              // Convert structured extraction to Mention[] format
+              const mapSentiment = (sentiment: string): Sentiment => {
+                if (sentiment === 'positive') return Sentiment.POS;
+                if (sentiment === 'negative') return Sentiment.NEG;
+                return Sentiment.NEU;
+              };
+              
+              allMentions = structuredExtraction.mentions.map((m) => ({
+                brand: m.brand,
+                position: m.position,
+                confidence: m.confidence,
+                snippet: m.snippet || m.context.substring(0, 200) || '',
+                sentiment: mapSentiment(m.sentiment),
+              } as Mention));
+              
+              // Add competitor mentions
+              for (const competitor of structuredExtraction.competitors) {
+                for (const context of competitor.contexts) {
+                  allMentions.push({
+                    brand: competitor.brand,
+                    position: undefined,
+                    confidence: competitor.confidence,
+                    snippet: context.substring(0, 200) || '',
+                    sentiment: Sentiment.NEU, // Default to neutral for competitors
+                  } as Mention);
+                }
+              }
+              
+              // Extract citations and sentiment (still use rule-based for these)
+              citations = extractCitations(result.answerText, {});
+              sentiment = classifySentiment(result.answerText);
+              
+              console.log(`[RunPromptWorker] LLM extraction found ${allMentions.length} mentions, ${structuredExtraction.competitors.length} competitors, ${structuredExtraction.insights.length} insights`);
+            } catch (conversionError) {
+              console.error(`[RunPromptWorker] Failed to convert LLM extraction results, falling back to rule-based:`, conversionError);
+              // Fallback to rule-based extraction
+              const mentions = extractMentions(result.answerText, brandsToSearch, {
+                minConfidence: 0.4,
+              });
+              const allBrandMentions = extractAllBrandMentions(result.answerText, brandsToSearch, {
+                minLength: 3,
+                contextWindow: 120,
+              });
+              const mentionMap = new Map<string, Mention>();
+              for (const mention of mentions) {
+                const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
+                mentionMap.set(key, mention);
+              }
+              for (const mention of allBrandMentions) {
+                const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
+                if (!mentionMap.has(key)) {
+                  mentionMap.set(key, mention);
+                }
+              }
+              allMentions = Array.from(mentionMap.values());
+              citations = extractCitations(result.answerText, {});
+              sentiment = classifySentiment(result.answerText);
+              extractionModel = 'rule-based-fallback';
+            }
           }
         }
         
