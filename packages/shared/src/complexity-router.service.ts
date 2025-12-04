@@ -35,42 +35,45 @@ export class ComplexityRouterService {
     // Check prompt complexity
     const promptComplexity = this.analyzePromptComplexity(promptText);
     
-    // Simple: Short responses, few entities, no complex structures
-    if (
-      textLength < 500 &&
-      entityCount < 3 &&
-      !hasComplexStructures &&
-      promptComplexity === 'simple'
-    ) {
-      return {
-        complexity: ExtractionComplexity.SIMPLE,
-        confidence: 0.85,
-        reasoning: 'Short response with few entities, suitable for rule-based extraction',
-        estimatedCost: 0,
-      };
-    }
+    // CONSERVATIVE APPROACH: Default to simple unless clearly complex
+    // This ensures we use fast, reliable rule-based extraction when possible
     
-    // Complex: Long responses, many entities, complex structures, complex prompts
+    // Complex: Only for very long responses with many entities AND complex structures
     if (
-      textLength > 2000 ||
-      entityCount > 10 ||
-      hasComplexStructures ||
+      textLength > 3000 &&
+      entityCount > 15 &&
+      hasComplexStructures &&
       promptComplexity === 'complex'
     ) {
       return {
         complexity: ExtractionComplexity.COMPLEX,
         confidence: 0.80,
-        reasoning: 'Long response with many entities and complex structures, requires advanced LLM',
+        reasoning: 'Very long response with many entities and complex structures, requires advanced LLM',
         estimatedCost: 0.01, // ~$0.01 per response for GPT-4o
       };
     }
     
-    // Medium: Everything else
+    // Medium: Only for moderately long responses with some complexity
+    if (
+      textLength > 1500 &&
+      entityCount > 8 &&
+      (hasComplexStructures || promptComplexity === 'complex')
+    ) {
+      return {
+        complexity: ExtractionComplexity.MEDIUM,
+        confidence: 0.75,
+        reasoning: 'Moderate complexity, suitable for cheaper LLM extraction',
+        estimatedCost: 0.001, // ~$0.001 per response for GPT-4o-mini
+      };
+    }
+    
+    // Simple: Default for most cases (conservative approach)
+    // Rule-based extraction is fast, reliable, and free
     return {
-      complexity: ExtractionComplexity.MEDIUM,
-      confidence: 0.75,
-      reasoning: 'Moderate complexity, suitable for cheaper LLM extraction',
-      estimatedCost: 0.001, // ~$0.001 per response for GPT-4o-mini
+      complexity: ExtractionComplexity.SIMPLE,
+      confidence: 0.85,
+      reasoning: 'Response suitable for rule-based extraction (default for reliability)',
+      estimatedCost: 0,
     };
   }
 

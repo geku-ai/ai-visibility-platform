@@ -536,12 +536,26 @@ export class RunPromptWorker {
                   }
                 );
                 
-                // Validate extraction result - must have at least mentions array
+                // Validate extraction result - must have at least mentions array WITH CONTENT
+                // Only consider it successful if we have mentions OR competitors (not empty)
                 if (structuredExtraction && Array.isArray(structuredExtraction.mentions)) {
                   const mentionCount = structuredExtraction.mentions.length;
                   const competitorCount = structuredExtraction.competitors?.length || 0;
-                  console.log(`[RunPromptWorker] ✅ Successfully extracted with ${providerConfig.name} (${modelToTry}): ${mentionCount} mentions, ${competitorCount} competitors`);
-                  break; // Success - exit both loops
+                  
+                  // CRITICAL: Only consider successful if we actually extracted something
+                  if (mentionCount > 0 || competitorCount > 0) {
+                    console.log(`[RunPromptWorker] ✅ Successfully extracted with ${providerConfig.name} (${modelToTry}): ${mentionCount} mentions, ${competitorCount} competitors`);
+                    break; // Success - exit both loops
+                  } else {
+                    // Empty extraction - treat as failure
+                    console.warn(`[RunPromptWorker] ⚠️ ${providerConfig.name} (${modelToTry}) returned empty extraction (0 mentions, 0 competitors), trying fallback...`);
+                    structuredExtraction = null; // Reset to null so we try next model
+                    if (modelsToTry.indexOf(modelToTry) < modelsToTry.length - 1) {
+                      continue; // Try next fallback model
+                    } else {
+                      break; // No more fallback models, try next provider
+                    }
+                  }
                 } else {
                   // Invalid extraction result - treat as failure and try next model/provider
                   console.warn(`[RunPromptWorker] ⚠️ ${providerConfig.name} (${modelToTry}) returned invalid extraction result, trying fallback...`);
@@ -569,9 +583,15 @@ export class RunPromptWorker {
               }
             }
             
-            // If we got here and have a successful extraction, exit provider loop
-            if (structuredExtraction) {
+            // If we got here and have a successful extraction WITH CONTENT, exit provider loop
+            // Double-check that extraction has actual content (not just empty arrays)
+            if (structuredExtraction && 
+                Array.isArray(structuredExtraction.mentions) && 
+                (structuredExtraction.mentions.length > 0 || (structuredExtraction.competitors?.length || 0) > 0)) {
               break;
+            } else {
+              // Reset to null if empty, so we fall back to rule-based
+              structuredExtraction = null;
             }
           }
           
