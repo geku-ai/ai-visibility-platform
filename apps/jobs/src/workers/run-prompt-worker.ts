@@ -6,7 +6,7 @@
 import { Worker, Job } from 'bullmq';
 import { Pool } from 'pg';
 import { createProvider } from '@ai-visibility/providers';
-import { EngineKey, ExtractionCacheService } from '@ai-visibility/shared';
+import { EngineKey, ExtractionCacheService, ComplexityRouterService, ExtractionComplexity } from '@ai-visibility/shared';
 import { extractMentions, extractAllBrandMentions, extractCitations, classifySentiment, Mention } from '@ai-visibility/parser';
 import { HallucinationDetectorService } from '@ai-visibility/geo';
 // @ts-ignore - Workspace package resolution
