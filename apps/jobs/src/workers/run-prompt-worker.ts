@@ -28,6 +28,7 @@ export class RunPromptWorker {
   private dbPool: Pool;
   private hallucinationDetector: HallucinationDetectorService;
   private extractionCache: ExtractionCacheService;
+  private complexityRouter: ComplexityRouterService;
 
   constructor(connection: any) {
     this.dbPool = new Pool({
@@ -37,6 +38,9 @@ export class RunPromptWorker {
     
     // Initialize extraction cache
     this.extractionCache = new ExtractionCacheService();
+    
+    // Initialize complexity router
+    this.complexityRouter = new ComplexityRouterService();
     
     // Initialize hallucination detector (optional - will gracefully fail if dependencies missing)
     // Note: Jobs service is not NestJS, so we can't use DI. Hallucination detection will be skipped.
@@ -381,6 +385,19 @@ export class RunPromptWorker {
       } else {
         // Cache miss - perform extraction
         console.log(`[RunPromptWorker] Cache MISS - performing extraction (key: ${cachedResult.cacheKey})`);
+        
+        // Analyze complexity to determine extraction strategy
+        const complexityAnalysis = this.complexityRouter.analyzeComplexity(result.answerText, prompt.text);
+        console.log(`[RunPromptWorker] Complexity: ${complexityAnalysis.complexity} (confidence: ${complexityAnalysis.confidence.toFixed(2)}, cost: $${complexityAnalysis.estimatedCost.toFixed(4)})`);
+        console.log(`[RunPromptWorker] Reasoning: ${complexityAnalysis.reasoning}`);
+        
+        // For now, use rule-based extraction for all (Phase 1 full will add LLM extraction for medium/complex)
+        // TODO: Phase 1 full - route to LLM extraction for medium/complex cases
+        if (complexityAnalysis.complexity === ExtractionComplexity.SIMPLE) {
+          console.log(`[RunPromptWorker] Using rule-based extraction (FREE)`);
+        } else {
+          console.log(`[RunPromptWorker] Using rule-based extraction (LLM extraction coming in Phase 1 full)`);
+        }
         
         // Log brands being searched for debugging
         if (brandsToSearch.length > 0) {
