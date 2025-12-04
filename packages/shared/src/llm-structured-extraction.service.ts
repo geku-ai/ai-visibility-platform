@@ -48,12 +48,16 @@ export interface ExtractionOptions {
  */
 export class LLMStructuredExtractionService {
   /**
-   * Extract structured data from LLM response
-   * This is a placeholder that will be implemented with actual LLM calls
+   * Extract structured data from LLM response using an LLM provider
+   * @param responseText - The original LLM response text to extract from
+   * @param promptText - The original prompt that generated the response
+   * @param askProvider - Function to call an LLM provider (e.g., provider.ask())
+   * @param options - Extraction options
    */
   async extract(
     responseText: string,
     promptText: string,
+    askProvider: (prompt: string) => Promise<{ answerText: string }>,
     options: ExtractionOptions = {}
   ): Promise<StructuredExtraction> {
     const {
@@ -63,47 +67,114 @@ export class LLMStructuredExtractionService {
       includeInsights = true,
     } = options;
 
-    // TODO: Implement actual LLM function calling
-    // For now, return structured format that matches the schema
-    // This will be implemented in the next step with actual provider integration
-
-    return {
-      mentions: [],
-      competitors: [],
-      insights: includeInsights ? [] : [],
-      metadata: {
-        extractionModel: model,
-        extractionTimestamp: new Date().toISOString(),
-        confidence: 0.8,
-        source: 'fresh',
-      },
-    };
+    try {
+      // Generate extraction prompt with JSON schema
+      const extractionPrompt = this.generateExtractionPrompt(responseText, promptText, brandsToSearch);
+      
+      // Call LLM provider to extract structured data
+      const llmResponse = await askProvider(extractionPrompt);
+      
+      // Parse the structured response
+      const extraction = this.parseExtractionResponse(llmResponse.answerText);
+      
+      // Filter by minConfidence
+      const filteredMentions = extraction.mentions.filter(m => m.confidence >= minConfidence);
+      const filteredCompetitors = extraction.competitors.filter(c => c.confidence >= minConfidence);
+      
+      return {
+        mentions: filteredMentions,
+        competitors: filteredCompetitors,
+        insights: includeInsights ? extraction.insights : [],
+        metadata: {
+          extractionModel: model,
+          extractionTimestamp: new Date().toISOString(),
+          confidence: extraction.metadata.confidence,
+          source: 'fresh',
+        },
+      };
+    } catch (error) {
+      console.error('[LLMStructuredExtraction] Failed to extract structured data:', error);
+      // Fallback: return empty extraction
+      return {
+        mentions: [],
+        competitors: [],
+        insights: [],
+        metadata: {
+          extractionModel: model,
+          extractionTimestamp: new Date().toISOString(),
+          confidence: 0.0,
+          source: 'fresh',
+        },
+      };
+    }
   }
 
   /**
-   * Generate extraction prompt for LLM
+   * Generate extraction prompt for LLM with JSON schema
    */
   private generateExtractionPrompt(
     responseText: string,
     promptText: string,
     brandsToSearch: string[]
   ): string {
-    return `Extract structured information from the following AI response.
+    return `You are an expert data extraction system. Extract structured information from the following AI response.
 
 Original Prompt: ${promptText}
 
 AI Response:
 ${responseText}
 
-Please extract:
-1. All brand mentions (including variations like "Booking" and "booking.com")
-2. Competitors mentioned
-3. Key insights and patterns
-4. Relationships between brands
-
 Brands to specifically look for: ${brandsToSearch.join(', ') || 'all brands mentioned'}
 
-Return structured JSON with mentions, competitors, and insights.`;
+Extract the following information:
+1. **Mentions**: All brand mentions found in the response, including:
+   - brand: The exact brand name as mentioned
+   - canonicalBrand: Normalized brand name (e.g., "booking.com" -> "Booking")
+   - context: Surrounding text/sentence where the brand is mentioned
+   - sentiment: "positive", "neutral", or "negative"
+   - relationship: "direct_competitor", "indirect_competitor", "partner", "supplier", or "other"
+   - comparison: Any comparison made with the brand (if applicable)
+   - confidence: Confidence score 0.0-1.0
+   - position: Character position in text (if determinable)
+   - snippet: A relevant snippet of text (50-100 chars)
+
+2. **Competitors**: Brands that are competitors (direct or indirect):
+   - brand: Competitor brand name
+   - relationship: "direct_competitor" or "indirect_competitor"
+   - mentionCount: Number of times mentioned
+   - contexts: Array of context strings where mentioned
+   - confidence: Confidence score 0.0-1.0
+
+3. **Insights**: Key insights, patterns, or observations from the response (array of strings)
+
+Return ONLY valid JSON in this exact format:
+{
+  "mentions": [
+    {
+      "brand": "string",
+      "canonicalBrand": "string",
+      "context": "string",
+      "sentiment": "positive" | "neutral" | "negative",
+      "relationship": "direct_competitor" | "indirect_competitor" | "partner" | "supplier" | "other" | null,
+      "comparison": "string" | null,
+      "confidence": 0.0-1.0,
+      "position": number | null,
+      "snippet": "string" | null
+    }
+  ],
+  "competitors": [
+    {
+      "brand": "string",
+      "relationship": "direct_competitor" | "indirect_competitor",
+      "mentionCount": number,
+      "contexts": ["string"],
+      "confidence": 0.0-1.0
+    }
+  ],
+  "insights": ["string"]
+}
+
+Return ONLY the JSON object, no markdown, no code blocks, no explanations.`;
   }
 
   /**

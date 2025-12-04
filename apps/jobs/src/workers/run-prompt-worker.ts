@@ -6,7 +6,7 @@
 import { Worker, Job } from 'bullmq';
 import { Pool } from 'pg';
 import { createProvider } from '@ai-visibility/providers';
-import { EngineKey, ExtractionCacheService, ComplexityRouterService, ExtractionComplexity } from '@ai-visibility/shared';
+import { EngineKey, ExtractionCacheService, ComplexityRouterService, ExtractionComplexity, LLMStructuredExtractionService, Sentiment } from '@ai-visibility/shared';
 import { extractMentions, extractAllBrandMentions, extractCitations, classifySentiment, Mention } from '@ai-visibility/parser';
 import { HallucinationDetectorService } from '@ai-visibility/geo';
 // @ts-ignore - Workspace package resolution
@@ -29,6 +29,7 @@ export class RunPromptWorker {
   private hallucinationDetector: HallucinationDetectorService;
   private extractionCache: ExtractionCacheService;
   private complexityRouter: ComplexityRouterService;
+  private llmExtractionService: LLMStructuredExtractionService;
 
   constructor(connection: any) {
     this.dbPool = new Pool({
@@ -41,6 +42,9 @@ export class RunPromptWorker {
     
     // Initialize complexity router
     this.complexityRouter = new ComplexityRouterService();
+    
+    // Initialize LLM structured extraction service
+    this.llmExtractionService = new LLMStructuredExtractionService();
     
     // Initialize hallucination detector (optional - will gracefully fail if dependencies missing)
     // Note: Jobs service is not NestJS, so we can't use DI. Hallucination detection will be skipped.
@@ -391,14 +395,6 @@ export class RunPromptWorker {
         console.log(`[RunPromptWorker] Complexity: ${complexityAnalysis.complexity} (confidence: ${complexityAnalysis.confidence.toFixed(2)}, cost: $${complexityAnalysis.estimatedCost.toFixed(4)})`);
         console.log(`[RunPromptWorker] Reasoning: ${complexityAnalysis.reasoning}`);
         
-        // For now, use rule-based extraction for all (Phase 1 full will add LLM extraction for medium/complex)
-        // TODO: Phase 1 full - route to LLM extraction for medium/complex cases
-        if (complexityAnalysis.complexity === ExtractionComplexity.SIMPLE) {
-          console.log(`[RunPromptWorker] Using rule-based extraction (FREE)`);
-        } else {
-          console.log(`[RunPromptWorker] Using rule-based extraction (LLM extraction coming in Phase 1 full)`);
-        }
-        
         // Log brands being searched for debugging
         if (brandsToSearch.length > 0) {
           console.log(`[RunPromptWorker] Searching for mentions of brands: ${brandsToSearch.join(', ')}`);
@@ -406,39 +402,138 @@ export class RunPromptWorker {
           console.warn(`[RunPromptWorker] No brands found for mention extraction (workspaceId: ${workspaceId}, demoRunId: ${demoRunId || 'none'})`);
         }
 
-        // Parse results - pass brands to extractMentions so it can find them
-        // Lower minConfidence to 0.4 to catch more mentions (was 0.6 default)
-        // This helps when LLM responses mention brands in different contexts
-        const mentions = extractMentions(result.answerText, brandsToSearch, {
-          minConfidence: 0.4, // Lower threshold to catch more mentions
-        });
-        
-        // Also extract ALL potential brand mentions from the text (not just the ones we're searching for)
-        // This helps find competitors and other brands mentioned in responses
-        const allBrandMentions = extractAllBrandMentions(result.answerText, brandsToSearch, {
-          minLength: 3,
-          contextWindow: 120,
-        });
-        
-        // Combine mentions, preferring the ones from extractMentions (higher confidence)
-        // Deduplicate by brand name and position
-        const mentionMap = new Map<string, Mention>();
-        for (const mention of mentions) {
-          const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
-          mentionMap.set(key, mention);
-        }
-        // Add all brand mentions that aren't duplicates
-        for (const mention of allBrandMentions) {
-          const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
-          if (!mentionMap.has(key)) {
+        // Route to appropriate extraction method based on complexity
+        let extractionModel = 'rule-based';
+        if (complexityAnalysis.complexity === ExtractionComplexity.SIMPLE) {
+          // Simple: Use free rule-based extraction
+          console.log(`[RunPromptWorker] Using rule-based extraction (FREE)`);
+          
+          // Parse results - pass brands to extractMentions so it can find them
+          const mentions = extractMentions(result.answerText, brandsToSearch, {
+            minConfidence: 0.4, // Lower threshold to catch more mentions
+          });
+          
+          // Also extract ALL potential brand mentions from the text
+          const allBrandMentions = extractAllBrandMentions(result.answerText, brandsToSearch, {
+            minLength: 3,
+            contextWindow: 120,
+          });
+          
+          // Combine mentions, deduplicate by brand name and position
+          const mentionMap = new Map<string, Mention>();
+          for (const mention of mentions) {
+            const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
             mentionMap.set(key, mention);
           }
+          for (const mention of allBrandMentions) {
+            const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
+            if (!mentionMap.has(key)) {
+              mentionMap.set(key, mention);
+            }
+          }
+          allMentions = Array.from(mentionMap.values());
+          
+          // Extract citations and sentiment
+          citations = extractCitations(result.answerText, {});
+          sentiment = classifySentiment(result.answerText);
+        } else {
+          // Medium/Complex: Use LLM structured extraction
+          const model = complexityAnalysis.complexity === ExtractionComplexity.COMPLEX ? 'gpt-4o' : 'gpt-4o-mini';
+          console.log(`[RunPromptWorker] Using LLM structured extraction (${model}, cost: $${complexityAnalysis.estimatedCost.toFixed(4)})`);
+          
+          try {
+            // Create extraction provider (prefer OpenAI, fallback to Anthropic)
+            let extractionProvider: any = null;
+            const openaiKey = process.env.OPENAI_API_KEY;
+            const anthropicKey = process.env.ANTHROPIC_API_KEY;
+            
+            if (openaiKey && openaiKey.trim().length >= 10) {
+              extractionProvider = createProvider('OPENAI' as EngineKey, { apiKey: openaiKey });
+              extractionModel = model;
+            } else if (anthropicKey && anthropicKey.trim().length >= 10) {
+              extractionProvider = createProvider('ANTHROPIC' as EngineKey, { apiKey: anthropicKey });
+              extractionModel = model === 'gpt-4o' ? 'claude-sonnet' : 'claude-haiku';
+            } else {
+              console.warn(`[RunPromptWorker] No LLM provider available for extraction, falling back to rule-based`);
+              throw new Error('No LLM provider available');
+            }
+            
+            // Perform LLM structured extraction
+            const structuredExtraction = await this.llmExtractionService.extract(
+              result.answerText,
+              prompt.text,
+              async (extractionPrompt: string) => {
+                const extractionResult = await extractionProvider.ask(extractionPrompt);
+                return { answerText: extractionResult.answerText };
+              },
+              {
+                model: extractionModel as any,
+                brandsToSearch,
+                minConfidence: 0.5,
+                includeInsights: true,
+              }
+            );
+            
+            // Convert structured extraction to Mention[] format
+            const mapSentiment = (sentiment: string): Sentiment => {
+              if (sentiment === 'positive') return Sentiment.POS;
+              if (sentiment === 'negative') return Sentiment.NEG;
+              return Sentiment.NEU;
+            };
+            
+            allMentions = structuredExtraction.mentions.map((m) => ({
+              brand: m.brand,
+              position: m.position,
+              confidence: m.confidence,
+              snippet: m.snippet || m.context.substring(0, 200) || '',
+              sentiment: mapSentiment(m.sentiment),
+            } as Mention));
+            
+            // Add competitor mentions
+            for (const competitor of structuredExtraction.competitors) {
+              for (const context of competitor.contexts) {
+                allMentions.push({
+                  brand: competitor.brand,
+                  position: undefined,
+                  confidence: competitor.confidence,
+                  snippet: context.substring(0, 200) || '',
+                  sentiment: Sentiment.NEU, // Default to neutral for competitors
+                } as Mention);
+              }
+            }
+            
+            // Extract citations and sentiment (still use rule-based for these)
+            citations = extractCitations(result.answerText, {});
+            sentiment = classifySentiment(result.answerText);
+            
+            console.log(`[RunPromptWorker] LLM extraction found ${allMentions.length} mentions, ${structuredExtraction.competitors.length} competitors, ${structuredExtraction.insights.length} insights`);
+          } catch (llmError) {
+            console.warn(`[RunPromptWorker] LLM extraction failed, falling back to rule-based:`, llmError);
+            // Fallback to rule-based extraction
+            const mentions = extractMentions(result.answerText, brandsToSearch, {
+              minConfidence: 0.4,
+            });
+            const allBrandMentions = extractAllBrandMentions(result.answerText, brandsToSearch, {
+              minLength: 3,
+              contextWindow: 120,
+            });
+            const mentionMap = new Map<string, Mention>();
+            for (const mention of mentions) {
+              const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
+              mentionMap.set(key, mention);
+            }
+            for (const mention of allBrandMentions) {
+              const key = `${mention.brand.toLowerCase()}_${mention.position || 0}`;
+              if (!mentionMap.has(key)) {
+                mentionMap.set(key, mention);
+              }
+            }
+            allMentions = Array.from(mentionMap.values());
+            citations = extractCitations(result.answerText, {});
+            sentiment = classifySentiment(result.answerText);
+            extractionModel = 'rule-based-fallback';
+          }
         }
-        allMentions = Array.from(mentionMap.values());
-        
-        // Extract citations and sentiment
-        citations = extractCitations(result.answerText, {});
-        sentiment = classifySentiment(result.answerText);
         
         // Log mention extraction results for debugging
         if (allMentions.length > 0) {
@@ -479,9 +574,9 @@ export class RunPromptWorker {
             sentiment,
           },
           {
-            extractionModel: 'rule-based', // Will be updated to LLM model in Phase 1 full
+            extractionModel: extractionModel,
             extractionTimestamp: new Date().toISOString(),
-            confidence: 0.8,
+            confidence: complexityAnalysis.complexity === ExtractionComplexity.SIMPLE ? 0.8 : 0.9,
           }
         );
       }
