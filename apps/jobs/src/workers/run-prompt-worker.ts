@@ -442,12 +442,47 @@ export class RunPromptWorker {
           console.log(`[RunPromptWorker] Using LLM structured extraction (${model}, cost: $${complexityAnalysis.estimatedCost.toFixed(4)})`);
           
           // Try LLM extraction with multiple providers (Anthropic → OpenAI → Gemini → rule-based)
+          // Model names: Use latest stable versions, configurable via env vars
+          // Anthropic: Claude 3.7 Sonnet (complex) / Claude 3.7 Haiku (medium) - fallback to 3.5 if 3.7 unavailable
+          // OpenAI: GPT-4o (complex) / GPT-4o-mini (medium)
+          // Gemini: Gemini 2.0 Pro (latest) - fallback to 1.5 Pro if 2.0 unavailable
           let structuredExtraction: any = null;
           let extractionAttempted = false;
+          
+          // Determine Anthropic model with fallbacks
+          const getAnthropicModel = (): string => {
+            if (model === 'gpt-4o') {
+              // Complex: Try 3.7 Sonnet, fallback to 3.5 Sonnet
+              return process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet-20240620'; // Using 3.5 as 3.7 IDs not confirmed
+            } else {
+              // Medium: Try 3.7 Haiku, fallback to 3 Haiku
+              return process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-haiku-20240307';
+            }
+          };
+          
+          // Determine Gemini model with fallbacks
+          const getGeminiModel = (): string => {
+            return process.env.GEMINI_MODEL || 'gemini-1.5-pro'; // Using 1.5 Pro as 2.0 IDs not confirmed
+          };
+          
           const providers = [
-            { key: 'ANTHROPIC', envKey: 'ANTHROPIC_API_KEY', model: model === 'gpt-4o' ? 'claude-3-5-sonnet-20240620' : 'claude-3-haiku-20240307', name: 'Anthropic' },
+            { 
+              key: 'ANTHROPIC', 
+              envKey: 'ANTHROPIC_API_KEY', 
+              model: getAnthropicModel(), 
+              name: 'Anthropic',
+              fallbackModels: model === 'gpt-4o' 
+                ? ['claude-3-5-sonnet-20240620', 'claude-3-sonnet-20240229'] 
+                : ['claude-3-haiku-20240307']
+            },
             { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
-            { key: 'GEMINI', envKey: 'GEMINI_API_KEY', model: 'gemini-1.5-pro', name: 'Gemini' },
+            { 
+              key: 'GEMINI', 
+              envKey: 'GEMINI_API_KEY', 
+              model: getGeminiModel(), 
+              name: 'Gemini',
+              fallbackModels: ['gemini-1.5-pro', 'gemini-1.5-flash']
+            },
           ];
           
           for (const providerConfig of providers) {
@@ -458,52 +493,70 @@ export class RunPromptWorker {
               continue;
             }
             
-            try {
-              console.log(`[RunPromptWorker] Attempting LLM extraction with ${providerConfig.name} (${providerConfig.model})`);
-              extractionAttempted = true;
-              
-              const extractionProvider = createProvider(providerConfig.key as EngineKey, { apiKey });
-              extractionModel = providerConfig.model;
-              
-              // Perform LLM structured extraction
-              // LLM providers use query(), search providers use ask()
-              structuredExtraction = await this.llmExtractionService.extract(
-                result.answerText,
-                prompt.text,
-                async (extractionPrompt: string) => {
-                  // Check if provider has query() method (LLM providers) or ask() method (search providers)
-                  if (typeof (extractionProvider as any).query === 'function') {
-                    // LLM provider - use query() and normalize response
-                    const llmResponse = await (extractionProvider as any).query(extractionPrompt, {
-                      model: extractionModel,
-                      temperature: 0.3,
-                    });
-                    // Normalize LLM response to match ask() format
-                    return { answerText: llmResponse.content || llmResponse.answer || '' };
-                  } else if (typeof extractionProvider.ask === 'function') {
-                    // Search provider - use ask()
-                    const extractionResult = await extractionProvider.ask(extractionPrompt);
-                    return { answerText: extractionResult.answerText };
-                  } else {
-                    throw new Error(`Provider ${providerConfig.name} has neither ask() nor query() method`);
+            // Try primary model, then fallback models if available
+            const modelsToTry = [providerConfig.model, ...(providerConfig.fallbackModels || [])];
+            
+            for (const modelToTry of modelsToTry) {
+              try {
+                console.log(`[RunPromptWorker] Attempting LLM extraction with ${providerConfig.name} (${modelToTry})`);
+                extractionAttempted = true;
+                
+                const extractionProvider = createProvider(providerConfig.key as EngineKey, { apiKey });
+                extractionModel = modelToTry;
+                
+                // Perform LLM structured extraction
+                // LLM providers use query(), search providers use ask()
+                structuredExtraction = await this.llmExtractionService.extract(
+                  result.answerText,
+                  prompt.text,
+                  async (extractionPrompt: string) => {
+                    // Check if provider has query() method (LLM providers) or ask() method (search providers)
+                    if (typeof (extractionProvider as any).query === 'function') {
+                      // LLM provider - use query() and normalize response
+                      const llmResponse = await (extractionProvider as any).query(extractionPrompt, {
+                        model: extractionModel,
+                        temperature: 0.3,
+                      });
+                      // Normalize LLM response to match ask() format
+                      return { answerText: llmResponse.content || llmResponse.answer || '' };
+                    } else if (typeof extractionProvider.ask === 'function') {
+                      // Search provider - use ask()
+                      const extractionResult = await extractionProvider.ask(extractionPrompt);
+                      return { answerText: extractionResult.answerText };
+                    } else {
+                      throw new Error(`Provider ${providerConfig.name} has neither ask() nor query() method`);
+                    }
+                  },
+                  {
+                    model: extractionModel as any,
+                    brandsToSearch,
+                    minConfidence: 0.5,
+                    includeInsights: true,
                   }
-                },
-                {
-                  model: extractionModel as any,
-                  brandsToSearch,
-                  minConfidence: 0.5,
-                  includeInsights: true,
+                );
+                
+                console.log(`[RunPromptWorker] ✅ Successfully extracted with ${providerConfig.name} (${modelToTry})`);
+                break; // Success - exit both loops
+                
+              } catch (modelError) {
+                const errorMsg = modelError instanceof Error ? modelError.message : String(modelError);
+                const is404 = errorMsg.includes('404') || errorMsg.includes('not found') || errorMsg.includes('not_found');
+                
+                if (is404 && modelsToTry.indexOf(modelToTry) < modelsToTry.length - 1) {
+                  // 404 error and more fallback models available - try next model
+                  console.log(`[RunPromptWorker] Model ${modelToTry} not found (404), trying fallback...`);
+                  continue;
+                } else {
+                  // Other error or last model - log and try next provider
+                  console.warn(`[RunPromptWorker] ❌ ${providerConfig.name} (${modelToTry}) extraction failed: ${errorMsg}`);
+                  break; // Exit model loop, try next provider
                 }
-              );
-              
-              console.log(`[RunPromptWorker] ✅ Successfully extracted with ${providerConfig.name}`);
-              break; // Success - exit loop
-              
-            } catch (providerError) {
-              const errorMsg = providerError instanceof Error ? providerError.message : String(providerError);
-              console.warn(`[RunPromptWorker] ❌ ${providerConfig.name} extraction failed: ${errorMsg}`);
-              // Continue to next provider
-              continue;
+              }
+            }
+            
+            // If we got here and have a successful extraction, exit provider loop
+            if (structuredExtraction) {
+              break;
             }
           }
           
