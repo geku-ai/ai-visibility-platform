@@ -466,12 +466,27 @@ export class RunPromptWorker {
               extractionModel = providerConfig.model;
               
               // Perform LLM structured extraction
+              // LLM providers use query(), search providers use ask()
               structuredExtraction = await this.llmExtractionService.extract(
                 result.answerText,
                 prompt.text,
                 async (extractionPrompt: string) => {
-                  const extractionResult = await extractionProvider.ask(extractionPrompt);
-                  return { answerText: extractionResult.answerText };
+                  // Check if provider has query() method (LLM providers) or ask() method (search providers)
+                  if (typeof (extractionProvider as any).query === 'function') {
+                    // LLM provider - use query() and normalize response
+                    const llmResponse = await (extractionProvider as any).query(extractionPrompt, {
+                      model: extractionModel,
+                      temperature: 0.3,
+                    });
+                    // Normalize LLM response to match ask() format
+                    return { answerText: llmResponse.content || llmResponse.answer || '' };
+                  } else if (typeof extractionProvider.ask === 'function') {
+                    // Search provider - use ask()
+                    const extractionResult = await extractionProvider.ask(extractionPrompt);
+                    return { answerText: extractionResult.answerText };
+                  } else {
+                    throw new Error(`Provider ${providerConfig.name} has neither ask() nor query() method`);
+                  }
                 },
                 {
                   model: extractionModel as any,
