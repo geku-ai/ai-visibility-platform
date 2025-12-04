@@ -450,14 +450,14 @@ export class RunPromptWorker {
           let extractionAttempted = false;
           
           // Determine Anthropic model with fallbacks
-          // Use model names without dates for stability (Anthropic supports both)
+          // Anthropic requires full model names with date suffixes
           const getAnthropicModel = (): string => {
             if (model === 'gpt-4o') {
-              // Complex: Try Claude 3.5 Sonnet (stable name), fallback to 3.0 Sonnet
-              return process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet';
+              // Complex: Try Claude 3.5 Sonnet with date suffix, fallback to 3.0 Sonnet
+              return process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet-20241022';
             } else {
-              // Medium: Use Claude 3 Haiku (stable name)
-              return process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-haiku';
+              // Medium: Use Claude 3 Haiku with date suffix (required by API)
+              return process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-haiku-20240307';
             }
           };
           
@@ -473,8 +473,8 @@ export class RunPromptWorker {
               model: getAnthropicModel(), 
               name: 'Anthropic',
               fallbackModels: model === 'gpt-4o' 
-                ? ['claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229', 'claude-3-sonnet'] 
-                : ['claude-3-haiku-20240307', 'claude-3-haiku']
+                ? ['claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229'] 
+                : ['claude-3-haiku-20240307']
             },
             { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
             { 
