@@ -48,3 +48,8 @@ export * from './idempotency';
 
 // Export events
 export * from './events';
+
+// Export extraction services
+export * from './extraction-cache.service';
+export * from './complexity-router.service';
+export * from './llm-structured-extraction.service';
