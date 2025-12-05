@@ -365,7 +365,18 @@ export function extractAllBrandMentions(
     'east', 'easts', 'west', 'wests', 'global', 'globals', 'international', 'internationals',
     'worldwide', 'worldwides', 'local', 'locals', 'regional', 'regionals', 'national', 'nationals',
     'domestic', 'domestics', 'world', 'worlds', 'country', 'countries', 'city', 'cities',
-    'region', 'regions', 'area', 'areas', 'location', 'locations', 'place', 'places'
+    'region', 'regions', 'area', 'areas', 'location', 'locations', 'place', 'places',
+    // Common words that are being incorrectly extracted as brands
+    'based', 'google', 'text', 'speech', 'copy', 'convert', 'supports', 'simple', 'voice', 'typing',
+    'assistant', 'listen', 'try', 'read', 'aloud', 'zabaware', 'murf', 'ai', 'natural', 'reader',
+    'realistic', 'voice', 'generation', 'discover', 'use', 'clear', 'speak', 'choosing', 'major',
+    'big', 'watson', 'specialized', 'projects', 'representative', 'strengths', 'typical', 'multilingual',
+    'tight', 'enterprise', 'huge', 'custom', 'neural', 'smaller', 'very', 'large', 'accessibility',
+    'easy', 'full', 'setup', 'main', 'focus', 'target', 'expose', 'run', 'everyday', 'windows',
+    'notable', 'designed', 'altered', 'cloud', 'fully', 'similar', 'mozilla', 'quick', 'scenario',
+    'strong', 'reading', 'friendly', 'games', 'expressive', 'scalable', 'privacy', 'individual',
+    'multi', 'pricing', 'plans', 'explore', 'compare', 'subscriptions', 'transforming', 'once',
+    'thanks', 'engines', 'experience', 'tested', 'macs', 'people', 'since', 'check', 'gartner'
   ]);
   
   // Match capitalized words/phrases that look like brand names

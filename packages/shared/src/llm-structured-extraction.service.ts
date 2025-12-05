@@ -113,7 +113,9 @@ export class LLMStructuredExtractionService {
       ? responseText.substring(0, maxResponseLength) + '...'
       : responseText;
 
-    return `Extract structured data from this AI response. Return ONLY valid JSON, no markdown, no code blocks, no explanations.
+    return `You are a JSON extraction system. Extract structured data from this AI response and return ONLY valid JSON.
+
+CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no explanations, no text before or after the JSON.
 
 Original Prompt: ${promptText.substring(0, 500)}
 
@@ -127,10 +129,13 @@ Extract:
 2. Competitors: Competitor brands with brand, relationship (direct_competitor/indirect_competitor), mentionCount, contexts array, confidence (0.0-1.0)
 3. Insights: Array of insight strings
 
-Return this JSON structure only:
-{"mentions":[{"brand":"string","canonicalBrand":"string","context":"string","sentiment":"positive|neutral|negative","relationship":"direct_competitor|indirect_competitor|partner|supplier|other|null","comparison":"string|null","confidence":0.0-1.0,"position":number|null,"snippet":"string|null"}],"competitors":[{"brand":"string","relationship":"direct_competitor|indirect_competitor","mentionCount":number,"contexts":["string"],"confidence":0.0-1.0}],"insights":["string"]}
+Return this EXACT JSON structure (ensure all strings are properly escaped, all arrays are closed, all objects are closed):
+{"mentions":[{"brand":"string","canonicalBrand":"string","context":"string","sentiment":"positive|neutral|negative","relationship":"direct_competitor|indirect_competitor|partner|supplier|other|null","comparison":"string|null","confidence":0.0,"position":0,"snippet":"string|null"}],"competitors":[{"brand":"string","relationship":"direct_competitor|indirect_competitor","mentionCount":0,"contexts":["string"],"confidence":0.0}],"insights":["string"]}
 
-JSON only, no other text.`;
+IMPORTANT: 
+- Escape all quotes in strings with \\"
+- Ensure all JSON arrays and objects are properly closed
+- Return ONLY the JSON object, nothing else`;
   }
 
   /**
@@ -159,12 +164,12 @@ JSON only, no other text.`;
       const parsed = JSON.parse(cleaned);
       return this.validateAndNormalize(parsed);
     } catch (error) {
-      // Log the actual response for debugging (first 500 chars)
-      const preview = cleaned.substring(0, 500);
+      // Log the actual response for debugging (first 1000 chars)
+      const preview = cleaned.substring(0, 1000);
       console.error('[LLMStructuredExtraction] Failed to parse JSON. Response preview:', preview);
       console.error('[LLMStructuredExtraction] Parse error:', error instanceof Error ? error.message : String(error));
       
-      // Try one more time with more aggressive cleaning
+      // Try to fix common JSON issues
       try {
         // Remove any text before first {
         const firstBrace = cleaned.indexOf('{');
@@ -175,6 +180,39 @@ JSON only, no other text.`;
         const lastBrace = cleaned.lastIndexOf('}');
         if (lastBrace > 0 && lastBrace < cleaned.length - 1) {
           cleaned = cleaned.substring(0, lastBrace + 1);
+        }
+        
+        // Try to fix truncated arrays/objects by finding the deepest nesting level
+        let openBraces = 0;
+        let openBrackets = 0;
+        let lastValidIndex = cleaned.length;
+        
+        for (let i = 0; i < cleaned.length; i++) {
+          if (cleaned[i] === '{') openBraces++;
+          if (cleaned[i] === '}') openBraces--;
+          if (cleaned[i] === '[') openBrackets++;
+          if (cleaned[i] === ']') openBrackets--;
+          
+          // If we've closed all braces and brackets, this is a valid end point
+          if (openBraces === 0 && openBrackets === 0 && i > 0) {
+            lastValidIndex = i + 1;
+            break;
+          }
+        }
+        
+        // If we have unclosed braces/brackets, try to close them
+        if (openBraces > 0 || openBrackets > 0) {
+          // Remove incomplete trailing content
+          cleaned = cleaned.substring(0, lastValidIndex);
+          // Close any remaining open structures
+          while (openBrackets > 0) {
+            cleaned += ']';
+            openBrackets--;
+          }
+          while (openBraces > 0) {
+            cleaned += '}';
+            openBraces--;
+          }
         }
         
         const parsed = JSON.parse(cleaned);

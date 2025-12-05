@@ -453,8 +453,8 @@ export class RunPromptWorker {
           // Anthropic requires full model names with date suffixes
           const getAnthropicModel = (): string => {
             if (model === 'gpt-4o') {
-              // Complex: Try Claude 3.5 Sonnet with date suffix, fallback to 3.0 Sonnet
-              return process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet-20241022';
+              // Complex: Use Claude 3.5 Sonnet (valid model name)
+              return process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet-20240620';
             } else {
               // Medium: Use Claude 3 Haiku with date suffix (required by API)
               return process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-haiku-20240307';
@@ -473,7 +473,7 @@ export class RunPromptWorker {
               model: getAnthropicModel(), 
               name: 'Anthropic',
               fallbackModels: model === 'gpt-4o' 
-                ? ['claude-3-5-sonnet-20241022', 'claude-3-sonnet-20240229'] 
+                ? ['claude-3-5-sonnet-20240620', 'claude-3-haiku-20240307'] 
                 : ['claude-3-haiku-20240307']
             },
             { key: 'OPENAI', envKey: 'OPENAI_API_KEY', model: model, name: 'OpenAI' },
@@ -514,11 +514,12 @@ export class RunPromptWorker {
                     // Check if provider has query() method (LLM providers) or ask() method (search providers)
                     if (typeof (extractionProvider as any).query === 'function') {
                       // LLM provider - use query() and normalize response
-                      // Reduce max_tokens for Anthropic to avoid rate limits (10k tokens/min)
-                      const maxTokens = providerConfig.key === 'ANTHROPIC' ? 2000 : undefined;
+                      // Increase max_tokens for Anthropic to avoid JSON truncation (but stay under rate limits)
+                      // Anthropic rate limit is 10k output tokens/min, so use 4000 to allow multiple requests
+                      const maxTokens = providerConfig.key === 'ANTHROPIC' ? 4000 : undefined;
                       const llmResponse = await (extractionProvider as any).query(extractionPrompt, {
                         model: extractionModel,
-                        temperature: 0.3,
+                        temperature: 0.1, // Lower temperature for more consistent JSON
                         maxTokens: maxTokens,
                       });
                       // Normalize LLM response to match ask() format
