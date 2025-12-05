@@ -376,7 +376,14 @@ export function extractAllBrandMentions(
     'notable', 'designed', 'altered', 'cloud', 'fully', 'similar', 'mozilla', 'quick', 'scenario',
     'strong', 'reading', 'friendly', 'games', 'expressive', 'scalable', 'privacy', 'individual',
     'multi', 'pricing', 'plans', 'explore', 'compare', 'subscriptions', 'transforming', 'once',
-    'thanks', 'engines', 'experience', 'tested', 'macs', 'people', 'since', 'check', 'gartner'
+    'thanks', 'engines', 'experience', 'tested', 'macs', 'people', 'since', 'check', 'gartner',
+    // More garbage words from logs
+    'let', 'choose', 'however', 'features', 'conversely', 'tried', 'both', 'winner', 'if', 'pro',
+    'price', 'customer', 'education', 'whisper', 'podcast', 'powered', 'riverside', 'speechify',
+    'in', 'polly', 'want', 'azure', 'see', 'learn', 'competition', 'observations', 'comparing',
+    'latency', 'cloning', 'performance', 'built', 'real', 'low', 'manual', 'customization', 'developer',
+    'balabolka', 'deepgram', 'aura', 'cartesia', 'techradar', 'pcmag', 'fahimai', 'readspeaker',
+    'reddit', 'linkedin', 'nocodo', 'voices', 'compared', 'eleven', 'labs'
   ]);
   
   // Match capitalized words/phrases that look like brand names

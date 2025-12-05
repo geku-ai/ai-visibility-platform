@@ -113,29 +113,34 @@ export class LLMStructuredExtractionService {
       ? responseText.substring(0, maxResponseLength) + '...'
       : responseText;
 
-    return `You are a JSON extraction system. Extract structured data from this AI response and return ONLY valid JSON.
+    // Use a simpler, more robust format that's easier to parse
+    return `Extract brand mentions and competitors from this AI response.
 
-CRITICAL: Return ONLY valid JSON. No markdown, no code blocks, no explanations, no text before or after the JSON.
-
-Original Prompt: ${promptText.substring(0, 500)}
+Original Prompt: ${promptText.substring(0, 300)}
 
 AI Response:
 ${truncatedResponse}
 
 Brands to find: ${brandsToSearch.join(', ') || 'all brands'}
 
-Extract:
-1. Mentions: All brand mentions with brand, canonicalBrand, context, sentiment (positive/neutral/negative), relationship (direct_competitor/indirect_competitor/partner/supplier/other), comparison (if any), confidence (0.0-1.0), position, snippet
-2. Competitors: Competitor brands with brand, relationship (direct_competitor/indirect_competitor), mentionCount, contexts array, confidence (0.0-1.0)
-3. Insights: Array of insight strings
+Return a JSON object with this structure. Keep it simple - use null for missing values, keep strings short.
 
-Return this EXACT JSON structure (ensure all strings are properly escaped, all arrays are closed, all objects are closed):
-{"mentions":[{"brand":"string","canonicalBrand":"string","context":"string","sentiment":"positive|neutral|negative","relationship":"direct_competitor|indirect_competitor|partner|supplier|other|null","comparison":"string|null","confidence":0.0,"position":0,"snippet":"string|null"}],"competitors":[{"brand":"string","relationship":"direct_competitor|indirect_competitor","mentionCount":0,"contexts":["string"],"confidence":0.0}],"insights":["string"]}
+{
+  "mentions": [
+    {"brand": "BrandName", "canonicalBrand": "BrandName", "context": "short context", "sentiment": "positive|neutral|negative", "relationship": "direct_competitor|indirect_competitor|other", "confidence": 0.9}
+  ],
+  "competitors": [
+    {"brand": "CompetitorName", "relationship": "direct_competitor|indirect_competitor", "mentionCount": 1, "confidence": 0.9}
+  ],
+  "insights": ["insight 1", "insight 2"]
+}
 
-IMPORTANT: 
-- Escape all quotes in strings with \\"
-- Ensure all JSON arrays and objects are properly closed
-- Return ONLY the JSON object, nothing else`;
+Rules:
+- Keep context strings under 100 characters
+- Use simple sentiment: positive, neutral, or negative
+- Use simple relationship: direct_competitor, indirect_competitor, or other
+- Confidence is 0.0 to 1.0
+- Return valid JSON only - no markdown, no code blocks`;
   }
 
   /**
@@ -182,21 +187,53 @@ IMPORTANT:
           cleaned = cleaned.substring(0, lastBrace + 1);
         }
         
+        // Fix common escape sequence issues
+        // Replace invalid escape sequences with valid ones
+        cleaned = cleaned.replace(/\\(?!["\\/bfnrtu])/g, '\\\\'); // Fix invalid escapes
+        // Fix broken Unicode escapes (e.g., \u0027 that might be malformed)
+        cleaned = cleaned.replace(/\\u([0-9a-fA-F]{0,3})(?![0-9a-fA-F])/g, (match, hex) => {
+          // If incomplete Unicode escape, replace with escaped quote
+          if (hex.length < 4) {
+            return '\\"';
+          }
+          return match;
+        });
+        
         // Try to fix truncated arrays/objects by finding the deepest nesting level
         let openBraces = 0;
         let openBrackets = 0;
+        let inString = false;
+        let escapeNext = false;
         let lastValidIndex = cleaned.length;
         
         for (let i = 0; i < cleaned.length; i++) {
-          if (cleaned[i] === '{') openBraces++;
-          if (cleaned[i] === '}') openBraces--;
-          if (cleaned[i] === '[') openBrackets++;
-          if (cleaned[i] === ']') openBrackets--;
+          const char = cleaned[i];
           
-          // If we've closed all braces and brackets, this is a valid end point
-          if (openBraces === 0 && openBrackets === 0 && i > 0) {
-            lastValidIndex = i + 1;
-            break;
+          // Track string state (ignore braces/brackets inside strings)
+          if (escapeNext) {
+            escapeNext = false;
+            continue;
+          }
+          if (char === '\\') {
+            escapeNext = true;
+            continue;
+          }
+          if (char === '"' && !escapeNext) {
+            inString = !inString;
+            continue;
+          }
+          
+          if (!inString) {
+            if (char === '{') openBraces++;
+            if (char === '}') openBraces--;
+            if (char === '[') openBrackets++;
+            if (char === ']') openBrackets--;
+            
+            // If we've closed all braces and brackets, this is a valid end point
+            if (openBraces === 0 && openBrackets === 0 && i > 0) {
+              lastValidIndex = i + 1;
+              break;
+            }
           }
         }
         
@@ -215,9 +252,68 @@ IMPORTANT:
           }
         }
         
+        // Try parsing again
         const parsed = JSON.parse(cleaned);
         return this.validateAndNormalize(parsed);
       } catch (e2) {
+        // Last resort: try to extract partial data using regex
+        try {
+          const partial: any = { mentions: [], competitors: [], insights: [] };
+          
+          // Try to extract brand names from mentions array even if JSON is broken
+          const mentionsPattern = /"mentions"\s*:\s*\[([\s\S]*?)(?:\]|$)/;
+          const mentionsMatch = cleaned.match(mentionsPattern);
+          if (mentionsMatch) {
+            const mentionsText = mentionsMatch[1];
+            // Extract brand names using regex
+            const brandPattern = /"brand"\s*:\s*"([^"]+)"/g;
+            let brandMatch;
+            while ((brandMatch = brandPattern.exec(mentionsText)) !== null) {
+              const brand = brandMatch[1];
+              const sentimentMatch = mentionsText.substring(0, brandMatch.index).match(/"sentiment"\s*:\s*"([^"]+)"/);
+              const relationshipMatch = mentionsText.substring(0, brandMatch.index).match(/"relationship"\s*:\s*"([^"]+)"/);
+              partial.mentions.push({
+                brand,
+                canonicalBrand: brand,
+                context: '',
+                sentiment: sentimentMatch ? sentimentMatch[1] : 'neutral',
+                relationship: relationshipMatch ? relationshipMatch[1] : 'other',
+                confidence: 0.7,
+              });
+            }
+          }
+          
+          // Try to extract competitors
+          const competitorsPattern = /"competitors"\s*:\s*\[([\s\S]*?)(?:\]|$)/;
+          const competitorsMatch = cleaned.match(competitorsPattern);
+          if (competitorsMatch) {
+            const competitorsText = competitorsMatch[1];
+            const brandPattern = /"brand"\s*:\s*"([^"]+)"/g;
+            let brandMatch;
+            while ((brandMatch = brandPattern.exec(competitorsText)) !== null) {
+              const brand = brandMatch[1];
+              const relationshipMatch = competitorsText.substring(0, brandMatch.index).match(/"relationship"\s*:\s*"([^"]+)"/);
+              partial.competitors.push({
+                brand,
+                relationship: relationshipMatch ? relationshipMatch[1] : 'other',
+                mentionCount: 1,
+                confidence: 0.7,
+              });
+            }
+          }
+          
+          // If we extracted anything, return it
+          if (partial.mentions.length > 0 || partial.competitors.length > 0) {
+            console.warn('[LLMStructuredExtraction] Extracted partial data from broken JSON:', {
+              mentions: partial.mentions.length,
+              competitors: partial.competitors.length,
+            });
+            return this.validateAndNormalize(partial);
+          }
+        } catch (e3) {
+          // Ignore regex extraction errors
+        }
+        
         console.warn('[LLMStructuredExtraction] Failed to parse LLM response after cleaning, returning empty extraction');
         return this.getEmptyExtraction();
       }
